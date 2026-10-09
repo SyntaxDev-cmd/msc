@@ -75,6 +75,14 @@ final class Library
     {
         $admin = Account::isAdmin($user);
         foreach ($items as &$it) {
+            if ($it['source'] === 'local') { // música só do servidor (sem vídeo de origem)
+                $it['library'] = ['audio' => $it['local_id'] ?? (int) $it['source_id'], 'video' => null];
+                $it['server'] = $it['library'];
+                $it['job'] = ['audio' => null, 'video' => null];
+                continue;
+            }
+            $it['stream_fav'] = $it['source'] === 'youtube'
+                && (bool) Db::one('SELECT 1 FROM stream_favs WHERE user_id = ? AND youtube_id = ?', [$user['id'], $it['source_id']]);
             $key = Text::key($it['artist'], $it['title']);
             $yt = $it['source'] === 'youtube' ? $it['source_id'] : '';
             $it['library'] = [];

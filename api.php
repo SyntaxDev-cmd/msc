@@ -290,6 +290,7 @@ try {
             $tid = (int) ($input['id'] ?? 0);
             if (Library::canAccess($user, $tid)) {
                 Library::touch($user, $tid, ['played' => true]);
+                Discovery::log($user, ['track_id' => $tid]);
             }
             json_out(['ok' => true]);
             return;
@@ -330,6 +331,61 @@ try {
                 $t['lyrics_plain'] = $l['plain'];
             }
             json_out(['synced' => $t['lyrics_synced'], 'plain' => $t['lyrics_plain']]);
+            return;
+
+        /* ===== Descoberta ===== */
+        case 'play_log': // música tocada direto do YouTube
+            Discovery::log($user, $input);
+            json_out(['ok' => true]);
+            return;
+
+        case 'home':
+            session_write_close();
+            @set_time_limit(90);
+            $safe = function (callable $fn) {
+                try {
+                    return $fn();
+                } catch (Throwable $e) {
+                    return [];
+                }
+            };
+            $foryou = $safe(fn() => Discovery::forYou($user, 30));
+            json_out([
+                'trending' => Library::annotate(Discovery::trending(7, 24), $user),
+                'top' => Library::annotate(Discovery::trending(3650, 30), $user),
+                'recent' => Library::annotate(Discovery::recentByUser($user, 16), $user),
+                'foryou' => Library::annotate($foryou, $user),
+                'artists' => Discovery::topArtists($user, 12),
+                'styles' => array_map(fn($s) => ['name' => $s[0], 'color' => $s[1]], Discovery::STYLES),
+                'server_total' => (int) (Db::one('SELECT COUNT(*) c FROM tracks')['c'] ?? 0),
+            ]);
+            return;
+
+        case 'style':
+            session_write_close();
+            json_out(['items' => Library::annotate(Discovery::style(mb_substr(trim((string) ($_GET['name'] ?? '')), 0, 60)), $user)]);
+            return;
+
+        case 'radio':
+            session_write_close();
+            $exclude = array_flip(explode(',', (string) ($_GET['exclude'] ?? '')));
+            $items = array_values(array_filter(Innertube::radio((string) ($_GET['video_id'] ?? ''), 40), fn($i) => !isset($exclude[$i['source_id']])));
+            json_out(['items' => Library::annotate($items, $user)]);
+            return;
+
+        case 'suggest_artists':
+            session_write_close();
+            $q = trim((string) ($_GET['q'] ?? ''));
+            json_out(['artists' => mb_strlen($q) < 2 ? [] : Innertube::searchArtists(mb_substr($q, 0, 60), 8)]);
+            return;
+
+        case 'stream_fav':
+            Discovery::setStreamFav($user, $input, !empty($input['value']));
+            json_out(['ok' => true]);
+            return;
+
+        case 'stream_favs':
+            json_out(['items' => Library::annotate(Discovery::streamFavs($user), $user)]);
             return;
 
         /* ===== Acervo compartilhado ===== */

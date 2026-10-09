@@ -240,6 +240,40 @@ SQL);
                 $pdo->exec('ALTER TABLE payments ADD COLUMN discount_pct INTEGER NOT NULL DEFAULT 0');
             }
             $pdo->exec('PRAGMA user_version = 2');
+            $v = 2;
+        }
+        if ($v < 3) {
+            // v3: histórico de reproduções (mais ouvidas, em alta, recomendações)
+            $pdo->exec(<<<SQL
+CREATE TABLE IF NOT EXISTS play_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    k TEXT NOT NULL,
+    youtube_id TEXT DEFAULT '',
+    track_id INTEGER DEFAULT 0,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    thumb TEXT DEFAULT '',
+    genre TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
+    at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pe_at ON play_events(at);
+CREATE INDEX IF NOT EXISTS idx_pe_k ON play_events(k);
+CREATE INDEX IF NOT EXISTS idx_pe_user ON play_events(user_id, at);
+CREATE TABLE IF NOT EXISTS stream_favs (
+    user_id INTEGER NOT NULL,
+    youtube_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT DEFAULT '',
+    thumb TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, youtube_id)
+);
+SQL);
+            $pdo->exec('PRAGMA user_version = 3');
         }
     }
 

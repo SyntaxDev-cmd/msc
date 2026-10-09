@@ -189,6 +189,7 @@ $v = APP_VERSION;
       </div>
     </div>
     <div class="pl-right">
+      <button class="icon-btn tgl-clip" data-action="clip" title="Mostrar/ocultar clipe (músicas do YouTube)"><svg><use href="#i-video"/></svg></button>
       <button class="icon-btn" data-action="lyrics" title="Letra (L)"><svg><use href="#i-lyrics"/></svg></button>
       <button class="icon-btn" data-action="queue" title="Fila (Q)"><svg><use href="#i-queue"/></svg></button>
       <button class="icon-btn" data-action="eq" title="Equalizador"><svg><use href="#i-eq"/></svg></button>
@@ -218,7 +219,8 @@ $v = APP_VERSION;
       <button data-tab="lyrics" class="active">Letra</button>
       <button data-tab="queue">Fila</button>
     </div>
-    <button class="icon-btn" data-action="eq" title="Equalizador"><svg><use href="#i-eq"/></svg></button>
+    <span class="row"><button class="icon-btn tgl-clip" data-action="clip" title="Clipe"><svg><use href="#i-video"/></svg></button>
+    <button class="icon-btn" data-action="eq" title="Equalizador"><svg><use href="#i-eq"/></svg></button></span>
   </header>
   <div class="np-body">
     <div class="np-left">

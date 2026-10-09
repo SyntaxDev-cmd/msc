@@ -377,29 +377,120 @@ final class Innertube
         }
     }
 
+    /** Converte uma música do YouTube Music no formato de resultado de busca do app */
+    public static function toItem(array $s): array
+    {
+        $artist = implode(', ', $s['artists'] ?: ['Desconhecido']);
+        return [
+            'source' => 'youtube', 'source_id' => $s['id'], 'title' => $s['title'], 'artist' => $artist,
+            'raw_title' => $artist . ' - ' . $s['title'], 'channel' => 'YouTube Music', 'album' => $s['album'] ?? '',
+            'genre' => '', 'duration' => (int) ($s['duration'] ?? 0), 'views' => 0,
+            'thumb' => ($s['thumb'] ?? '') ?: "https://i.ytimg.com/vi/{$s['id']}/hqdefault.jpg", 'kinds' => ['audio', 'video'],
+        ];
+    }
+
+    /** Artistas no YouTube Music (para sugerir enquanto o cliente digita) */
+    public static function searchArtists(string $q, int $limit = 8): array
+    {
+        return Cache::remember('itar:' . md5(mb_strtolower($q)), 86400, function () use ($q, $limit) {
+            $data = self::call('search', ['query' => $q, 'params' => self::P_MUSIC_ARTISTS], true);
+            $out = [];
+            foreach (self::collect($data, ['musicResponsiveListItemRenderer']) as [, $r]) {
+                $id = (string) ($r['navigationEndpoint']['browseEndpoint']['browseId'] ?? '');
+                if (!str_starts_with($id, 'UC')) {
+                    continue;
+                }
+                $out[] = [
+                    'id' => $id, 'name' => self::text($r['flexColumns'][0]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []),
+                    'thumb' => preg_replace('/=w\d+-h\d+/', '=w226-h226', self::bestThumb($r['thumbnail']['musicThumbnailRenderer']['thumbnail'] ?? [])),
+                    'subscribers' => trim((string) (explode('•', self::text($r['flexColumns'][1]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []))[1] ?? '')),
+                ];
+                if (count($out) >= $limit) {
+                    break;
+                }
+            }
+            return $out;
+        });
+    }
+
     /** Encontra o artista no YouTube Music (canal oficial com toda a discografia) */
     public static function musicArtist(string $name): ?array
     {
-        $data = self::call('search', ['query' => $name, 'params' => self::P_MUSIC_ARTISTS], true);
         $best = null;
         $bestScore = 0.0;
-        foreach (self::collect($data, ['musicResponsiveListItemRenderer']) as $i => [, $r]) {
-            $id = (string) ($r['navigationEndpoint']['browseEndpoint']['browseId'] ?? '');
-            if (!str_starts_with($id, 'UC')) {
-                continue;
-            }
-            $title = self::text($r['flexColumns'][0]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []);
-            $score = Text::similarity($title, $name) - $i; // empate: o primeiro resultado (mais relevante)
-            if ($score > $bestScore && Text::similarity($title, $name) >= 80) {
-                $bestScore = $score;
-                $best = [
-                    'id' => $id, 'name' => $title,
-                    'thumb' => preg_replace('/=w\d+-h\d+/', '=w544-h544', self::bestThumb($r['thumbnail']['musicThumbnailRenderer']['thumbnail'] ?? [])),
-                    'subscribers' => trim((string) (explode('•', self::text($r['flexColumns'][1]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []))[1] ?? '')),
-                ];
+        foreach (self::searchArtists($name, 10) as $i => $a) {
+            $sim = Text::similarity($a['name'], $name);
+            if ($sim >= 80 && $sim - $i > $bestScore) { // empate: o primeiro (mais relevante)
+                $bestScore = $sim - $i;
+                $best = $a;
             }
         }
+        if ($best) {
+            $best['thumb'] = preg_replace('/=w\d+-h\d+/', '=w544-h544', $best['thumb']);
+        }
         return $best;
+    }
+
+    /**
+     * "Rádio" do YouTube Music: músicas parecidas com uma música (o mesmo que o app toca quando a
+     * fila acaba). Usado na reprodução automática e nas recomendações "Para você".
+     */
+    public static function radio(string $videoId, int $max = 40): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_-]{11}$/', $videoId)) {
+            return [];
+        }
+        return Cache::remember('itr:' . $videoId, 3600 * 12, function () use ($videoId, $max) {
+            $data = self::call('next', ['videoId' => $videoId, 'playlistId' => 'RDAMVM' . $videoId, 'isAudioOnly' => true], true);
+            $out = [];
+            foreach (self::collect($data, ['playlistPanelVideoRenderer']) as [, $v]) {
+                $id = (string) ($v['videoId'] ?? '');
+                if (strlen($id) !== 11 || $id === $videoId || isset($out[$id])) {
+                    continue;
+                }
+                $runs = $v['longBylineText']['runs'] ?? $v['shortBylineText']['runs'] ?? [];
+                $artists = [];
+                $album = '';
+                foreach ($runs as $run) {
+                    $type = $run['navigationEndpoint']['browseEndpoint']['browseEndpointContextSupportedConfigs']['browseEndpointContextMusicConfig']['pageType'] ?? '';
+                    if ($type === 'MUSIC_PAGE_TYPE_ARTIST' || $type === 'MUSIC_PAGE_TYPE_USER_CHANNEL') {
+                        $artists[] = (string) $run['text'];
+                    } elseif ($type === 'MUSIC_PAGE_TYPE_ALBUM') {
+                        $album = (string) $run['text'];
+                    }
+                }
+                if (!$artists && $runs) {
+                    $artists[] = trim(explode('•', self::text(['runs' => $runs]))[0]);
+                }
+                $thumb = preg_replace('/=w\d+-h\d+/', '=w544-h544', self::bestThumb($v['thumbnail'] ?? [])) ?? '';
+                $out[$id] = self::toItem(['id' => $id, 'title' => self::text($v['title'] ?? []), 'artists' => $artists, 'album' => $album,
+                    'duration' => self::seconds(self::text($v['lengthText'] ?? [])), 'thumb' => $thumb]);
+                if (count($out) >= $max) {
+                    break;
+                }
+            }
+            return array_values($out);
+        });
+    }
+
+    /** "Fãs também curtem": artistas parecidos (carrossel da página do artista) */
+    public static function relatedArtists(array $page): array
+    {
+        $out = [];
+        foreach (self::collect($page, ['musicCarouselShelfRenderer']) as [, $car]) {
+            $title = mb_strtolower(self::text($car['header']['musicCarouselShelfBasicHeaderRenderer']['title'] ?? []));
+            if (!preg_match('/curtem|também|semelhan|parecid|like|similar|related/u', $title)) {
+                continue;
+            }
+            foreach (self::collect($car, ['musicTwoRowItemRenderer']) as [, $it]) {
+                $id = (string) ($it['navigationEndpoint']['browseEndpoint']['browseId'] ?? '');
+                if (str_starts_with($id, 'UC')) {
+                    $out[] = ['id' => $id, 'name' => self::text($it['title'] ?? []),
+                        'thumb' => preg_replace('/=w\d+-h\d+/', '=w226-h226', self::bestThumb($it['thumbnailRenderer']['musicThumbnailRenderer']['thumbnail'] ?? []))];
+                }
+            }
+        }
+        return array_slice($out, 0, 12);
     }
 
     /**
@@ -407,9 +498,10 @@ final class Innertube
      * as faixas de TODOS os álbuns, singles e EPs (abertos em paralelo).
      * @return array lista no formato de parseMusicItem (+ album)
      */
-    public static function musicDiscography(array $artist, int $maxAlbums = 80): array
+    public static function musicDiscography(array $artist, int $maxAlbums = 80, ?array &$related = null): array
     {
         $page = self::call('browse', ['browseId' => $artist['id']], true);
+        $related = self::relatedArtists($page);
         $tracks = [];
         $add = function (?array $t, string $album = '', string $thumb = '') use (&$tracks, $artist) {
             if (!$t || isset($tracks[$t['id']])) {
@@ -497,17 +589,12 @@ final class Innertube
             };
 
             $musicArtist = null;
+            $related = [];
             try {
                 $musicArtist = self::musicArtist($name);
                 if ($musicArtist) {
-                    foreach (self::musicDiscography($musicArtist) as $s) {
-                        $artist = implode(', ', $s['artists']);
-                        $add([
-                            'source' => 'youtube', 'source_id' => $s['id'], 'title' => $s['title'], 'artist' => $artist,
-                            'raw_title' => $artist . ' - ' . $s['title'], 'channel' => 'YouTube Music', 'album' => $s['album'],
-                            'genre' => '', 'duration' => $s['duration'], 'views' => 0,
-                            'thumb' => $s['thumb'] ?: "https://i.ytimg.com/vi/{$s['id']}/hqdefault.jpg", 'kinds' => ['audio', 'video'],
-                        ]);
+                    foreach (self::musicDiscography($musicArtist, 80, $related) as $s) {
+                        $add(self::toItem($s));
                     }
                 }
             } catch (Throwable $e) {
@@ -568,6 +655,7 @@ final class Innertube
                 'artist' => [
                     'name' => $info['name'] ?? $name, 'thumb' => $info['thumb'] ?? ($items[0]['thumb'] ?? ''),
                     'subscribers' => $info['subscribers'] ?? '', 'channel_id' => $channel['id'] ?? '',
+                    'related' => $related,
                 ],
                 'items' => array_slice($items, 0, $max),
             ];

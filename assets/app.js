@@ -138,7 +138,7 @@
       this.ready = new Promise((resolve, reject) => {
         const make = () => {
           this.player = new YT.Player('yt-host', {
-            width: '100%', height: '100%',
+            width: '100%', height: '100%', host: 'https://www.youtube-nocookie.com', // modo de privacidade do YouTube
             playerVars: { playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, disablekb: 1, fs: 0, origin: location.origin },
             events: { onReady: () => resolve(this.player), onStateChange: (e) => this.onState(e.data), onError: (e) => this.emit('error', e.data) },
           });
@@ -191,7 +191,7 @@
     const id = --remoteSeq;
     const yt = it.source === 'youtube' ? it.source_id : null;
     const t = { id, remote: true, youtube_id: yt, item: it, title: it.title, artist: it.artist, album: it.album || '', genre: it.genre || '',
-      duration: it.duration || 0, kind: 'audio', cover: true, thumb: it.thumb || (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : ''), plays: 0, favorite: false, size: 0, created_at: 0 };
+      duration: it.duration || 0, kind: 'audio', cover: true, thumb: it.thumb || (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : ''), plays: 0, favorite: !!it.stream_fav, size: 0, created_at: 0 };
     remoteIds.set(key, id); S.byId.set(id, t);
     return t;
   }
@@ -221,11 +221,14 @@
   });
   /* Janela do player do YouTube: sempre visível enquanto toca (exigência do YouTube) */
   function placeYT() {
-    const f = $('#yt-float'), t = P.track, np = $('#np');
+    const f = $('#yt-float'), t = P.track, np = $('#np'), clip = store.get('clip', false);
     f.hidden = !(t?.remote && P.el === ytEl);
     np.classList.toggle('remote', !f.hidden);
+    np.classList.toggle('clip', clip);
+    f.classList.toggle('mini', !clip);
+    document.body.classList.toggle('clip-on', clip);
     if (f.hidden) return;
-    if (np.classList.contains('open')) {
+    if (np.classList.contains('open') && clip) {
       const r = $('.np-stage').getBoundingClientRect();
       const w = Math.max(300, r.width), h = Math.max(200, Math.round((w * 9) / 16));
       Object.assign(f.style, { left: `${r.left + (r.width - w) / 2}px`, top: `${r.top + (r.height - h) / 2}px`, width: `${w}px`, height: `${h}px`, right: 'auto', bottom: 'auto' });
@@ -300,10 +303,25 @@
       if (auto && this.repeat === 'one') { this.el.currentTime = 0; return this.play(); }
       if (auto && this.sleepEnd) { this.sleepEnd = false; setSleep(0); this.pause(); return; }
       if (this.idx + 1 >= this.queue.length) {
+        if (auto && this.repeat === 'off' && store.get('autoplay', true) && !S.offlineMode) return this.autoRadio();
         if (this.repeat === 'all' || !auto) { this.idx = 0; } else { this.pause(); this.el.currentTime = 0; return; }
       } else this.idx++;
       if (S.offlineMode && !Offline.has(this.queue[this.idx])) { if (this.queue.some((id) => Offline.has(id))) return this.next(auto); return; }
       this.load(true);
+    },
+    /** Fila acabou: continua com músicas parecidas (rádio do YouTube Music) */
+    async autoRadio() {
+      const t = this.track, yt = t?.youtube_id || t?.item?.source_id;
+      if (!yt) { this.pause(); return; }
+      try {
+        const exclude = this.queue.map((id) => S.byId.get(id)?.youtube_id).filter(Boolean).join(',');
+        const { items } = await api('radio', { params: { video_id: yt, exclude } });
+        await ensureTracks(items.map((it) => it.library?.audio).filter(Boolean)).catch(() => {});
+        const ids = items.slice(0, 25).map(itemId).filter((id) => id && !this.queue.includes(id));
+        if (!ids.length) { this.pause(); return; }
+        this.queue.push(...ids); this.idx++; this.load(true); renderQueue();
+        toast('📻 Reprodução automática: músicas parecidas com ' + (t.artist || 'esta'));
+      } catch { this.pause(); }
     },
     prev() {
       if (this.el.currentTime > 3 || this.idx <= 0) { this.el.currentTime = 0; return; }
@@ -373,6 +391,7 @@
     Lyrics.sync(cur);
     if (!P.counted && (cur > 30 || (dur && cur > dur / 2))) {
       P.counted = true; const t = P.track;
+      if (t?.remote) api('play_log', { body: { youtube_id: t.youtube_id, title: t.title, artist: t.artist, thumb: t.thumb, duration: t.duration } }).catch(() => {});
       if (t && !t.remote) {
         t.plays++; t.last_played = Date.now() / 1000; api('played', { body: { id: t.id } }).catch(() => {});
         if (!S.tracks.includes(t)) { S.tracks.push(t); renderSidebarGenres(); }
@@ -604,7 +623,8 @@
     if (!P.queue.length) { box.innerHTML = '<div class="empty"><h3>Fila vazia</h3><p>Toque uma música para começar</p></div>'; return; }
     const cur = P.track;
     const next = P.queue.slice(P.idx + 1, P.idx + 101).map((id) => S.byId.get(id)).filter(Boolean);
-    box.innerHTML = `<div class="q-h">Tocando agora</div>${cur ? trackRow(cur, 0, { queue: true, qpos: P.idx }) : ''}
+    box.innerHTML = `<label class="switch q-auto"><input type="checkbox" data-autoplay ${store.get('autoplay', true) ? 'checked' : ''}><i></i> Reprodução automática — quando a fila acabar, continua com músicas parecidas</label>
+      <div class="q-h">Tocando agora</div>${cur ? trackRow(cur, 0, { queue: true, qpos: P.idx }) : ''}
       <div class="q-h">A seguir · ${P.queue.length - P.idx - 1}</div>
       ${next.map((t, i) => trackRow(t, i + 1, { queue: true, qpos: P.idx + 1 + i })).join('') || '<p class="muted" style="padding:0 8px">Nada na sequência</p>'}`;
   }
@@ -639,12 +659,16 @@
       return openPop(anchor, `
         <button class="mi" data-pop="next">${icon('queue')}Tocar em seguida</button>
         <button class="mi" data-pop="enqueue">${icon('queue')}Adicionar à fila</button>
+        <button class="mi" data-pop="fav">${icon(t.favorite ? 'heart-fill' : 'heart')}${t.favorite ? 'Remover das favoritas' : 'Favoritar'}</button>
+        <button class="mi" data-pop="radio">${icon('sparkle')}Rádio desta música</button>
         ${t.item?.source_id ? `<button class="mi" data-pop="dl">${icon('download')}Baixar para minha biblioteca</button>` : ''}
         <a class="mi" href="https://www.youtube.com/watch?v=${esc(t.youtube_id || '')}" target="_blank" rel="noopener">${icon('video')}Abrir no YouTube</a>`, (a) => {
         closePop();
         if (a === 'next') P.playNext(t.id);
         if (a === 'enqueue') P.enqueue(t.id);
         if (a === 'dl') download([t.item]);
+        if (a === 'fav') toggleFav(t);
+        if (a === 'radio') startRadio(t);
       });
     }
     openPop(anchor, `
@@ -682,7 +706,18 @@
   }
 
   async function toggleFav(t) {
-    if (t.remote) return toast('Para favoritar, baixe a música para a sua biblioteca (menu ⋯ › Baixar)');
+    if (t.remote) {
+      if (!t.youtube_id) return;
+      t.favorite = !t.favorite;
+      try {
+        await api('stream_fav', { body: { youtube_id: t.youtube_id, title: t.title, artist: t.artist, album: t.album, thumb: t.thumb, duration: t.duration, value: t.favorite } });
+      } catch (e) { t.favorite = !t.favorite; return toast(e.message, 'err'); }
+      updateNowPlaying();
+      $$(`.trk[data-id="${t.id}"] .fav`).forEach((b) => { b.classList.toggle('on', t.favorite); b.innerHTML = icon(t.favorite ? 'heart-fill' : 'heart'); });
+      toast(t.favorite ? 'Adicionada às favoritas ❤' : 'Removida das favoritas', 'ok');
+      if (currentRoute()[0] === 'favorites') route();
+      return;
+    }
     t.favorite = !t.favorite;
     await api('favorite', { body: { id: t.id, value: t.favorite } }).catch(() => { t.favorite = !t.favorite; });
     updateNowPlaying();
@@ -699,44 +734,124 @@
     if (S.me?.user.expired && name !== 'account') { name = 'account'; history.replaceState(null, '', '#/account'); }
     if (S.offlineMode && !['offline', 'account'].includes(name)) name = 'offline';
     if (name === 'admin' && !S.me?.panel) name = 'home';
-    const navKey = ['genre', 'artist', 'all'].includes(name) ? 'library' : name === 'admin' ? (a ? `admin/${a}` : 'admin') : name;
+    const navKey = name === 'style' ? 'home' : ['genre', 'artist', 'all'].includes(name) ? 'library' : name === 'admin' ? (a ? `admin/${a}` : 'admin') : name;
     $$('[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === navKey));
     closePop();
-    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline, explore: vExplore, playlist: vPlaylist };
+    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline, explore: vExplore, playlist: vPlaylist, style: vStyle };
     if (name === 'admin') Sonora.views.admin(a, b);
     else (views[name] || vHome)(a, b);
     $('#main').scrollTop = 0;
   }
 
-  function vHome() {
+  async function vHome() {
     const h = new Date().getHours();
     const hi = h < 5 ? 'Boa madrugada' : h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
-    const recent = [...S.tracks].sort((a, b) => b.created_at - a.created_at).slice(0, 20);
-    const top = [...S.tracks].filter((t) => t.plays > 0).sort((a, b) => b.plays - a.plays).slice(0, 10);
-    const size = S.tracks.reduce((s, t) => s + t.size, 0);
-    const gs = genres();
+    const first = (S.me?.user.name || '').split(' ')[0];
+    const recentLib = [...S.tracks].sort((x, y) => y.created_at - x.created_at).slice(0, 20);
     view.innerHTML = `
-      <h1 class="h1">${hi} 👋</h1>
-      <p class="sub">Pesquise qualquer música ou artista — o ${esc(APP.name)} baixa, organiza por gênero e artista e deixa pronto para ouvir.</p>
-      <form class="searchbar" data-form="home-search">${icon('search')}<input name="q" placeholder="Música, artista ou álbum…" autocomplete="off"><button class="btn primary">Buscar</button></form>
-      ${S.tracks.length ? `
-      <div class="stats">
-        <div class="stat"><b>${S.tracks.length}</b><span>faixas</span></div>
-        <div class="stat"><b>${artistsOf().length}</b><span>artistas</span></div>
-        <div class="stat"><b>${gs.length}</b><span>gêneros</span></div>
-        <div class="stat"><b>${fmtSize(size)}</b><span>no servidor</span></div>
-      </div>
-      <div class="row" style="margin-top:16px">
-        <button class="btn primary" data-action="mix">${icon('sparkle')} Mix aleatório</button>
-        <button class="btn" data-action="play-favs">${icon('heart')} Tocar favoritas</button>
-      </div>
-      <h2 class="h2">Adicionadas recentemente <a class="btn sm ghost" href="#/all">Ver tudo</a></h2>
-      <div class="hscroll">${recent.map(cardTrack).join('')}</div>
-      ${top.length ? `<h2 class="h2">Suas mais tocadas</h2>${trackList(top)}` : ''}
-      <h2 class="h2">Seus gêneros</h2>
-      <div class="grid">${gs.map(genreCard).join('')}</div>` : `
-      <div class="empty" style="padding-top:80px">${icon('music')}<h3>Sua biblioteca está vazia</h3><p>Busque um artista acima e toque em “Baixar todas”. 🎧</p></div>`}`;
+      <h1 class="h1">${hi}${first ? ', ' + esc(first) : ''} 👋</h1>
+      <p class="sub">O que vamos ouvir hoje? Qualquer música toca na hora.</p>
+      <div class="search-wrap"><form class="searchbar" data-form="home-search">${icon('search')}<input name="q" placeholder="Artista, música ou álbum…" autocomplete="off"><button class="btn primary">Buscar</button></form><div class="suggest" hidden></div></div>
+      <div id="home-dyn"><div class="skeleton" style="height:230px;margin-top:22px"></div><div class="skeleton" style="height:230px;margin-top:14px"></div></div>
+      ${S.tracks.length ? `<h2 class="h2">Sua biblioteca <span class="muted small">${S.tracks.length} músicas · sem anúncios</span>
+        <span class="row"><button class="btn sm" data-action="mix">${icon('sparkle')} Mix</button><a class="btn sm ghost" href="#/all">Ver tudo</a></span></h2>
+        <div class="hscroll">${recentLib.map(cardTrack).join('')}</div>` : ''}`;
+    bindSuggest(view);
+    let d;
+    try { d = await api('home'); } catch { const el = $('#home-dyn'); if (el) el.innerHTML = ''; return; }
+    const box = $('#home-dyn'); if (!box) return; // usuário saiu da página
+    Object.assign(LISTS, { h_recent: d.recent, h_trend: d.trending, h_foryou: d.foryou, h_top: d.top });
+    const listen = (key, label = 'Ouvir') => `<button class="btn sm" data-action="play-list" data-list="${key}">${icon('play')} ${label}</button>`;
+    let html = '';
+    if (!d.recent.length && !d.trending.length) html += `<div class="banner info" style="margin-top:18px"><span>🎧 Busque um artista ou escolha um estilo abaixo — tudo toca na hora, e o que você e os outros ouvirem vira “Em alta”.</span></div>`;
+    if (d.recent.length) html += `<h2 class="h2">Continuar ouvindo</h2><div class="hscroll">${d.recent.map((it, i) => itemCard(it, i, 'h_recent')).join('')}</div>`;
+    if (d.trending.length) html += `<h2 class="h2"><span>🔥 Em alta esta semana <span class="muted small">entre todos os ouvintes</span></span>${listen('h_trend')}</h2>
+      <div class="hscroll">${d.trending.map((it, i) => itemCard(it, i, 'h_trend', `${it.artist} · ${it.listeners} ouvinte${it.listeners > 1 ? 's' : ''}`)).join('')}</div>`;
+    if (d.foryou.length) html += `<h2 class="h2"><span>✨ Feito para você</span>${listen('h_foryou')}</h2>
+      <div class="hscroll">${d.foryou.map((it, i) => itemCard(it, i, 'h_foryou', it.because ? `Porque você ouviu ${it.because}` : it.artist)).join('')}</div>`;
+    html += `<h2 class="h2">Estilos</h2><div class="styles">${d.styles.map((st) => `<a class="style-card" href="#/style/${encodeURIComponent(st.name)}" style="--c:${esc(st.color)}"><span>${esc(st.name)}</span></a>`).join('')}</div>`;
+    if (d.top.length) html += `<h2 class="h2"><span>🏆 Mais ouvidas de todos os tempos</span>${listen('h_top', 'Ouvir todas')}</h2>${itemRows(d.top.slice(0, 10), 'h_top', { rank: true })}`;
+    if (d.artists.length) html += `<h2 class="h2">Seus artistas</h2><div class="artist-chips">${d.artists.map(artistChip).join('')}</div>`;
+    box.innerHTML = html;
   }
+
+  /* ---------- Itens de descoberta (do servidor ou direto do YouTube) ---------- */
+  const LISTS = {};
+  function itemId(it) { const lid = it.library?.audio; return lid && S.byId.has(lid) ? lid : remoteTrack(it)?.id; }
+  async function playItems(items, start = 0, shuffle = false) {
+    if (!items?.length) return;
+    await ensureTracks(items.map((it) => it.library?.audio).filter(Boolean)).catch(() => {});
+    const ids = []; let st = 0;
+    items.forEach((it, i) => { const id = itemId(it); if (!id) return; if (i === start) st = ids.length; ids.push(id); });
+    if (!ids.length) return;
+    if (shuffle !== P.shuffle) P.toggleShuffle();
+    P.playList(ids, shuffle ? Math.floor(Math.random() * ids.length) : st);
+  }
+  async function startRadio(t) {
+    const yt = t.youtube_id || t.item?.source_id;
+    if (!yt) return toast('Rádio indisponível para esta música', 'err');
+    try { const { items } = await api('radio', { params: { video_id: yt } }); LISTS.radio = [t.item || { source: 'youtube', source_id: yt, title: t.title, artist: t.artist, thumb: t.thumb, duration: t.duration }, ...items]; playItems(LISTS.radio, 0); toast(`📻 Rádio de “${t.title}”`); }
+    catch (e) { toast(e.message, 'err'); }
+  }
+  const itemThumb = (it) => it.thumb || (it.library?.audio && S.byId.get(it.library.audio)?.cover ? `stream.php?id=${it.library.audio}&cover=1` : '');
+  function itemCard(it, i, list, sub = '') {
+    const th = itemThumb(it);
+    return `<div class="card" data-action="play-item" data-list="${list}" data-i="${i}">
+      <div class="art">${th ? `<img src="${esc(th)}" loading="lazy" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : `<div class="ph" style="background:${gradient(it.artist)}">${esc((it.title || '♪')[0])}</div>`}
+      ${it.library?.audio ? '<span class="own" title="No nosso servidor: toca sem anúncios">✓</span>' : ''}</div>
+      <button class="fab" tabindex="-1">${icon('play')}</button><b>${esc(it.title)}</b><small>${esc(sub || it.artist)}</small></div>`;
+  }
+  function itemRows(items, list, { rank = false } = {}) {
+    return `<div class="rank-list">${items.map((it, i) => {
+      const th = itemThumb(it);
+      return `<div class="rk" data-action="play-item" data-list="${list}" data-i="${i}">${rank ? `<span class="rk-n">${i + 1}</span>` : ''}
+        <div class="trk-cover">${th ? `<img src="${esc(th)}" loading="lazy" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : icon('music')}</div>
+        <div class="trk-main"><b>${esc(it.title)}${it.library?.audio ? ' <span class="own-s" title="No nosso servidor">✓</span>' : ''}</b><small>${esc(it.artist)}${it.listeners ? ` · ${it.listeners} ouvinte${it.listeners > 1 ? 's' : ''}` : ''}${it.album ? ' · ' + esc(it.album) : ''}</small></div>
+        <span class="trk-dur">${it.duration ? fmt(it.duration) : ''}</span></div>`;
+    }).join('')}</div>`;
+  }
+  const artistChip = (a) => `<a class="achip" href="#/search?q=${encodeURIComponent(a.name)}&s=artist">${a.thumb ? `<img src="${esc(a.thumb)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="av" style="background:${gradient(a.name)}">${esc((a.name || '?')[0])}</span>`}<span>${esc(a.name)}</span></a>`;
+
+  /** Sugestão de artistas enquanto digita */
+  function bindSuggest(root) {
+    const inp = $('input[name=q]', root), box = $('.suggest', root);
+    if (!inp || !box) return;
+    let timer = null, tok = 0;
+    inp.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = inp.value.trim();
+      if (q.length < 2) { box.hidden = true; return; }
+      timer = setTimeout(async () => {
+        const my = ++tok;
+        try {
+          const { artists } = await api('suggest_artists', { params: { q } });
+          if (my !== tok) return;
+          box.innerHTML = artists.length ? '<small>Artistas</small>' + artists.map((a) => `<a href="#/search?q=${encodeURIComponent(a.name)}&s=artist" class="sg">
+            ${a.thumb ? `<img src="${esc(a.thumb)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="av" style="background:${gradient(a.name)}">${esc(a.name[0])}</span>`}
+            <span><b>${esc(a.name)}</b><small>${esc(a.subscribers || 'Artista')} · ver catálogo completo</small></span></a>`).join('') : '';
+          box.hidden = !artists.length;
+        } catch { box.hidden = true; }
+      }, 280);
+    });
+    inp.addEventListener('blur', () => setTimeout(() => (box.hidden = true), 200));
+    inp.addEventListener('focus', () => { if (box.innerHTML && inp.value.trim().length > 1) box.hidden = false; });
+  }
+
+  /** Estilo: as mais tocadas do gênero */
+  async function vStyle(name) {
+    view.innerHTML = `<div class="hero"><div class="art" style="background:${gradient(name)}"><div class="ph" style="color:#fff">${icon('music')}</div></div>
+      <div class="meta"><div class="kicker">Estilo</div><h1 class="h1">${esc(name)}</h1><p class="sub">As mais tocadas do momento</p>
+      <div class="row"><button class="btn primary" data-action="play-list" data-list="style">${icon('play')} Ouvir tudo</button>
+      <button class="btn" data-action="play-list-shuffle" data-list="style">${icon('shuffle')} Aleatório</button></div></div></div>
+      <div id="style-list"><div class="skeleton"></div><div class="skeleton" style="margin-top:8px"></div></div>`;
+    try {
+      const { items } = await api('style', { params: { name } });
+      LISTS.style = items;
+      const box = $('#style-list'); if (!box) return;
+      box.innerHTML = items.length ? itemRows(items, 'style', { rank: true }) : '<div class="empty"><h3>Nada encontrado agora</h3><p>Tente de novo em instantes.</p></div>';
+    } catch (e) { const box = $('#style-list'); if (box) box.innerHTML = `<div class="empty"><h3>${esc(e.message)}</h3></div>`; }
+  }
+
   const cardTrack = (t) => `<div class="card" data-action="play-one" data-id="${t.id}">
       <div class="art">${t.cover ? `<img src="${coverUrl(t)}" loading="lazy" alt="">` : `<div class="ph" style="background:${gradient(t.artist)}">${esc(t.title[0] || '♪')}</div>`}</div>
       <button class="fab" tabindex="-1">${icon('play')}</button><b>${esc(t.title)}</b><small>${esc(t.artist)}</small></div>`;
@@ -798,12 +913,16 @@
     draw();
   }
 
-  function vFavorites() {
-    const list = S.tracks.filter((t) => t.favorite);
+  async function vFavorites() {
+    const local = S.tracks.filter((t) => t.favorite);
+    let remote = [];
+    try { remote = (await api('stream_favs')).items.map((it) => remoteTrack(it)).filter(Boolean); remote.forEach((t) => (t.favorite = true)); } catch { /* offline */ }
+    if (currentRoute()[0] !== 'favorites') return;
+    const list = [...remote, ...local];
     view.innerHTML = `<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#ec4899)"><div class="ph" style="color:#fff">${icon('heart-fill')}</div></div>
-      <div class="meta"><div class="kicker">Playlist</div><h1 class="h1">Favoritas</h1><p class="sub">${list.length} faixas</p>
-      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list" title="Adicionar tudo a uma playlist">${icon('plus')} Playlist</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div>` : ''}</div></div>
-      ${list.length ? trackList(list) : '<div class="empty"><h3>Nenhuma favorita ainda</h3><p>Toque no ♥ de uma música.</p></div>'}`;
+      <div class="meta"><div class="kicker">Playlist</div><h1 class="h1">Favoritas</h1><p class="sub">${list.length} músicas${remote.length ? ` · ${remote.length} tocando pelo YouTube` : ''}</p>
+      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${local.length && Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div>` : ''}</div></div>
+      ${list.length ? trackList(list) : '<div class="empty"><h3>Nenhuma favorita ainda</h3><p>Toque no ♥ de qualquer música — inclusive as que tocam direto do YouTube.</p></div>'}`;
   }
 
   /* ---------- Downloads ---------- */
@@ -860,8 +979,8 @@
     const q = params.get('q') || S.search.q, src = params.get('s') || S.search.source;
     const srcs = SOURCES.filter(([k]) => k !== 'jamendo' || S.status.jamendo);
     view.innerHTML = `
-      <form class="searchbar" data-form="search">${icon('search')}<input name="q" value="${esc(q)}" placeholder="O que você quer ouvir?" autocomplete="off" autofocus>
-      <button class="btn primary">Buscar</button></form>
+      <div class="search-wrap"><form class="searchbar" data-form="search">${icon('search')}<input name="q" value="${esc(q)}" placeholder="O que você quer ouvir?" autocomplete="off" autofocus>
+      <button class="btn primary">Buscar</button></form><div class="suggest" hidden></div></div>
       <div class="tabs">${srcs.map(([k, l]) => `<button class="tab${k === src ? ' active' : ''}" data-src="${k}">${l}</button>`).join('')}</div>
       <div class="toolbar">
         <div class="seg" data-kind><button data-k="audio" class="${S.dlKind === 'audio' ? 'active' : ''}">${icon('music')} Áudio ${esc((S.status.audio_format || '').toUpperCase())}</button><button data-k="video" class="${S.dlKind === 'video' ? 'active' : ''}">${icon('video')} Vídeo</button></div>
@@ -880,6 +999,7 @@
     $('[data-filters]', view).addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; S.filters[b.dataset.f] = !S.filters[b.dataset.f]; store.set('filters', S.filters); b.classList.toggle('on'); renderResults(); });
     $$('[data-src]', view).forEach((b) => b.addEventListener('click', () => { S.search.source = b.dataset.src; $$('[data-src]', view).forEach((x) => x.classList.toggle('active', x === b)); doSearch($('input[name=q]', view).value); }));
     S.search.source = src;
+    bindSuggest(view);
     if (q) doSearch(q); else renderResults();
   }
 
@@ -934,7 +1054,8 @@
         ${ar.thumb ? `<img src="${esc(ar.thumb)}" alt="" referrerpolicy="no-referrer">` : `<div class="ph" style="background:${gradient(ar.name)}">${esc(ar.name[0] || '?')}</div>`}
         <div><small>Artista no YouTube</small><b>${esc(ar.name)}</b><span>${[ar.subscribers, `${ar.count} músicas e vídeos encontrados`].filter(Boolean).map(esc).join(' · ')}</span></div>
         <div class="row"><button class="btn primary" data-action="stream-all">${icon('play')} Ouvir tudo agora</button>
-        <button class="btn" data-action="download-all" ${todo.length ? '' : 'disabled'}>${icon('download')} Baixar discografia (${todo.length})</button></div></div>` : ''}
+        <button class="btn" data-action="download-all" ${todo.length ? '' : 'disabled'}>${icon('download')} Baixar discografia (${todo.length})</button></div></div>
+        ${ar.related?.length ? `<div class="related"><small>Fãs também curtem</small><div class="artist-chips">${ar.related.map(artistChip).join('')}</div></div>` : ''}` : ''}
       <div class="results">${items.map((it) => {
       const i = S.search.items.indexOf(it);
       const meta = [it.artist, it.album, it.year].filter(Boolean).map(esc).join(' · ');
@@ -1439,6 +1560,10 @@
       dl: () => { const it = S.search.items[+a.closest('.res').dataset.idx]; if (it) download([it]); },
       stream: () => streamResults(+a.closest('.res').dataset.idx),
       'stream-all': () => streamResults(-1),
+      'play-item': () => playItems(LISTS[a.dataset.list], +a.dataset.i),
+      'play-list': () => playItems(LISTS[a.dataset.list], 0),
+      'play-list-shuffle': () => playItems(LISTS[a.dataset.list], 0, true),
+      clip: () => { store.set('clip', !store.get('clip', false)); placeYT(); toast(store.get('clip', false) ? 'Clipe ligado 🎬' : 'Clipe desligado — modo música 🎧'); },
       'download-all': () => {
         const k = S.dlKind, todo = visibleItems().filter((it) => !it.library?.[k] && !it.job?.[k]);
         const u = S.me?.user, left = u && u.dl_per_day && !isAdmin() ? u.dl_per_day - S.me.usage.downloads_today : Infinity;
@@ -1490,6 +1615,9 @@
     np.addEventListener('touchend', (e) => { if (y0 !== null && e.changedTouches[0].clientY - y0 > 90) closeNP(); y0 = null; });
   })();
 
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('[data-autoplay]')) { store.set('autoplay', e.target.checked); toast(e.target.checked ? 'Reprodução automática ligada' : 'Reprodução automática desligada'); }
+  });
   window.addEventListener('hashchange', route);
   window.addEventListener('beforeunload', () => P.save());
 

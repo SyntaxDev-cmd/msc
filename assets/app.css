@@ -567,10 +567,50 @@ select.filter-input { padding: 8px 14px; color: var(--text); width: auto; }
 .yt-float .yt-badge { position: absolute; left: 10px; bottom: 8px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: rgba(0,0,0,.6); color: #fff; pointer-events: none; }
 .yt-float.in-np { z-index: 60; border-radius: 20px; }
 .yt-float.in-np .yt-badge { display: none; }
-.np.remote .np-art, .np.remote #np-viz { visibility: hidden; }
+.np.remote.clip .np-art, .np.remote.clip #np-viz { visibility: hidden; }
 .yt-float .i-pause, .is-playing .yt-float .i-play { display: none; }
 .is-playing .yt-float .i-pause { display: block; }
 .res-act .btn.primary { box-shadow: none; }
 @media (max-width: 860px) {
   .yt-float:not(.in-np) { right: 8px; left: 8px; width: auto; height: 200px; bottom: calc(var(--player-h) + 70px); }
 }
+
+/* ---------- Descoberta ---------- */
+.search-wrap { position: relative; z-index: 15; }
+.suggest { position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #1b1b27; border: 1px solid var(--line); border-radius: 18px; padding: 8px; box-shadow: 0 24px 60px -12px #000; animation: pop .15s; }
+.suggest > small { display: block; padding: 6px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 700; }
+.suggest .sg { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; }
+.suggest .sg:hover { background: var(--panel-2); }
+.suggest .sg img, .suggest .sg .av { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
+.suggest .sg b, .suggest .sg small { display: block; }
+.suggest .sg small { color: var(--muted); font-size: 12.5px; }
+.styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.style-card { position: relative; overflow: hidden; height: 92px; border-radius: 16px; padding: 14px; font-weight: 800; font-size: 17px; display: flex; align-items: flex-end;
+  background: linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 45%, #000)); transition: transform .2s; }
+.style-card:hover { transform: translateY(-3px) scale(1.02); }
+.style-card::after { content: "♪"; position: absolute; right: -6px; top: -14px; font-size: 76px; opacity: .22; transform: rotate(18deg); }
+.rank-list { display: flex; flex-direction: column; gap: 2px; }
+.rk { display: grid; grid-template-columns: 28px 46px minmax(0, 1fr) 52px; gap: 12px; align-items: center; padding: 6px 8px; border-radius: 12px; cursor: pointer; }
+.rank-list .rk:not(:has(.rk-n)) { grid-template-columns: 46px minmax(0, 1fr) 52px; }
+.rk:hover { background: var(--panel); }
+.rk-n { font-weight: 800; font-size: 17px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.rk:nth-child(-n+3) .rk-n { color: var(--accent); }
+.own { position: absolute; top: 8px; left: 8px; background: var(--ok); color: #04130c; font-size: 11px; font-weight: 800; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
+.own-s { color: var(--ok); font-size: 12px; }
+.artist-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.achip { display: inline-flex; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-weight: 600; font-size: 14px; transition: background .2s; }
+.achip:hover { background: var(--panel-2); }
+.achip img, .achip .av { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; font-size: 14px; }
+.related { width: 100%; margin-top: 4px; }
+.related > small { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+.q-auto { margin: 4px 8px 6px; font-size: 13px; color: var(--muted); }
+.yt-float.mini { width: 200px; height: 200px; }
+.clip-on .tgl-clip { color: var(--accent); }
+.h2 > span:first-child { display: inline-flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 860px) {
+  .yt-float.mini:not(.in-np) { left: auto; right: 8px; width: 200px; height: 200px; }
+  .styles { grid-template-columns: repeat(2, 1fr); }
+  .rk { grid-template-columns: 24px 46px minmax(0, 1fr); }
+  .rk .trk-dur { display: none; }
+}
+.card .art { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, #1d1d29), #15151f); }

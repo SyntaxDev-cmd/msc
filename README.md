@@ -30,6 +30,24 @@ storage/library/
 - Regra do YouTube: a janelinha do vídeo fica visível enquanto toca (no celular, o YouTube pausa com a tela
   bloqueada — para ouvir em segundo plano, baixe a música).
 
+**🎧 Descoberta (página inicial)**
+- **Em alta esta semana** e **Mais ouvidas de todos os tempos**: somam tudo o que *todos* os clientes ouvem
+  (pelo servidor ou pelo YouTube — a mesma música conta junto).
+- **Feito para você**: rádio do YouTube Music a partir do que cada cliente ouviu, sem repetir o que ele já ouviu.
+- **Continuar ouvindo**, **Seus artistas** e **18 estilos** (Sertanejo, Funk, Pagode, Trap, Piseiro, Gospel…)
+  com as mais tocadas de cada um.
+- **Sugestão de artistas enquanto digita** e **“Fãs também curtem”** no catálogo do artista.
+- **Reprodução automática**: quando a fila acaba, continua com músicas parecidas (liga/desliga na aba Fila).
+  Também há **“Rádio desta música”** no menu ⋯.
+- **Favoritar** funciona também para músicas tocadas direto do YouTube.
+
+**Anúncios e clipe**
+- Músicas do **nosso servidor** tocam pelo nosso player: **sem anúncio e sem clipe**. Marcadas com ✓ nas listas.
+- Músicas tocadas direto do YouTube usam o player oficial (regra do YouTube): o cliente escolhe **com clipe** ou
+  **modo música** (mini player de 200×200, o mínimo permitido; a tela cheia mostra a capa). Usamos o modo de
+  privacidade (`youtube-nocookie.com`). Os anúncios desse player são controlados pelo YouTube e não podem ser
+  removidos — para zerar anúncios, baixe as músicas para o servidor (cookies/API no install.php).
+
 **Busca e download**
 - **Baixa qualquer música ou vídeo que existir no YouTube** — é a fonte padrão da busca (até 50 resultados com “Carregar mais”).
 - **Artista (catálogo completo)**: abre a página oficial do artista no YouTube Music e junta a lista “todas as músicas”, **todas as faixas de todos os álbuns, singles e EPs** (abertos em paralelo), a busca de músicas e os clipes do canal oficial — sem duplicar, até 800 faixas, com botão **“Baixar discografia”**.
