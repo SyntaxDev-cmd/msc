@@ -1,0 +1,89 @@
+name: APK Android (zMusic)
+
+# Compila o app Android (pasta android/).
+# - Sem segredos configurados: gera o APK SEM assinatura e o salva em android/dist/ no próprio branch
+#   (assine no seu PC com a sua chave — veja android/README.md).
+# - Com os segredos ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS e ANDROID_KEY_PASSWORD:
+#   gera o APK já assinado e disponibiliza em "Artifacts" da execução.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android/**'
+      - '!android/dist/**'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Chave de assinatura (opcional, via segredos)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/upload.jks
+            printf 'storeFile=upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$KS_PASS" "$KS_ALIAS" "$KS_KEYPASS" > android/keystore.properties
+            echo "SIGNED=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Compilar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Preparar saída
+        run: |
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          mkdir -p android/dist
+          if [ "${SIGNED:-0}" = "1" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk android/dist/zmusic-release.apk
+            "$BT/apksigner" verify --print-certs android/dist/zmusic-release.apk
+          else
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk android/dist/zmusic-unsigned.apk
+            cp "$BT/lib/apksigner.jar" android/dist/apksigner.jar
+          fi
+          "$BT/aapt2" dump badging android/dist/*.apk > android/dist/badging.txt
+          "$BT/zipalign" -c -P 16 -v 4 android/dist/*.apk | tail -3
+          cat android/dist/badging.txt | head -40
+          ls -la android/dist
+
+      - name: Artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: zmusic-apk
+          path: android/dist/
+
+      - name: Salvar APK sem assinatura no branch
+        if: env.SIGNED != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f android/dist/
+          git commit -m "APK compilado (sem assinatura) [skip ci]" || exit 0
+          git push

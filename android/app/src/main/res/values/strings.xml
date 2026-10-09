@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_playback">Música tocando</string>
+    <string name="channel_playback_desc">Controles da música que está tocando</string>
+    <string name="offline_title">Sem conexão</string>
+    <string name="offline_msg">Não foi possível abrir. Verifique sua internet e tente de novo — as músicas salvas para offline continuam disponíveis.</string>
+    <string name="retry">Tentar de novo</string>
+    <string name="press_again">Toque em voltar de novo para sair</string>
+    <string name="update_title">Nova versão do app</string>
+    <string name="update_required">Esta versão do app não é mais suportada. Atualize para continuar.</string>
+    <string name="update_now">Atualizar</string>
+    <string name="later">Depois</string>
+    <string name="download_started">Baixando… acompanhe na barra de notificações</string>
+    <string name="copied">Copiado!</string>
+    <string name="share_via">Compartilhar</string>
+    <string name="play">Tocar</string>
+    <string name="pause">Pausar</string>
+    <string name="next">Próxima</string>
+    <string name="prev">Anterior</string>
+</resources>
