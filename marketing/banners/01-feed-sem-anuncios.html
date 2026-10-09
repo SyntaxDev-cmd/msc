@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Sem anúncios (feed 1080×1350)</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1350px; }
+  .top { position: absolute; left: 80px; top: 76px; right: 80px; display: flex; justify-content: space-between; align-items: center; }
+  .head { position: absolute; left: 80px; top: 196px; width: 940px; z-index: 2; }
+  .head .h { font-size: 112px; }
+  .sub2 { position: absolute; left: 80px; top: 600px; width: 470px; font-size: 34px; z-index: 2; }
+  .phone { right: 70px; top: 560px; width: 430px; transform: rotate(7deg); }
+  .f1 { left: 70px; top: 800px; transform: rotate(-3deg); z-index: 3; }
+  .f2 { left: 110px; top: 940px; transform: rotate(2deg); z-index: 3; }
+  .f1 .ic { background: rgba(239,68,68,.18); color: #f87171; }
+  .f2 .ic { background: rgba(34,211,238,.16); color: #67e8f9; }
+  .float { font-size: 26px; }
+  .float small { font-size: 20px; }
+  .float .ic svg { width: 28px; height: 28px; }
+  .bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 250px; padding-top: 50px; padding: 0 80px; display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(180deg, rgba(7,7,13,0), rgba(7,7,13,.97) 45%); z-index: 4; }
+  .cta { font-size: 36px; padding: 22px 22px 22px 44px; }
+  .cta .arrow { width: 64px; height: 64px; } .cta .arrow svg { width: 30px; }
+  .url { font-size: 26px; text-align: right; line-height: 1.4; }
+  .url b { color: #fff; display: block; font-size: 30px; }
+</style></head>
+<body><div class="canvas">
+  <div class="glow" style="width:760px;height:760px;background:#7c3aed;right:-220px;top:220px"></div>
+  <div class="glow" style="width:520px;height:520px;background:#06b6d4;left:-200px;top:-120px;opacity:.35"></div>
+  <div class="glow" style="width:500px;height:500px;background:#db2777;right:120px;bottom:-240px;opacity:.35"></div>
+  <div class="grid-lines"></div><div class="grain"></div>
+
+  <div class="top"><div data-logo="72"></div><span class="badge-free" style="font-size:22px">Teste grátis</span></div>
+
+  <div class="head">
+    <h1 class="h">Sua música.<br><span class="gt">Sem anúncios.</span><br>Sem limites.</h1>
+  </div>
+  <p class="sub sub2">Qualquer música toca na hora — até com a tela apagada.</p>
+
+  <div class="phone" data-shot="np.png"></div>
+
+  <div class="float f1"><span class="ic" data-icon="noads"></span><div>Zero anúncios<small>nem no meio, nem no começo</small></div></div>
+  <div class="float f2"><span class="ic" data-icon="lock"></span><div>Toca com a tela apagada<small>controles na tela de bloqueio</small></div></div>
+
+  <div class="bottom">
+    <span class="cta">Comece agora <span class="arrow" data-icon="arrow"></span></span>
+    <span class="url">Crie sua conta em<b>zmusic.zcloudpro.sbs</b></span>
+  </div>
+</div>
+<script src="parts.js"></script>
+</body></html>

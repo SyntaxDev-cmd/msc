@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Benefícios (feed 1080×1350)</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1350px; }
+  .top { position: absolute; left: 72px; top: 70px; }
+  .head { position: absolute; left: 72px; top: 168px; width: 560px; z-index: 3; }
+  .head .h { font-size: 64px; }
+  .list { position: absolute; left: 72px; top: 452px; width: 520px; display: grid; gap: 14px; z-index: 3; }
+  .it { display: flex; align-items: center; gap: 20px; padding: 14px 20px; backdrop-filter: blur(14px); background-color: rgba(18,18,30,.72); border-radius: 22px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); }
+  .it .ic { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; flex: none; }
+  .it .ic svg { width: 30px; height: 30px; }
+  .it b { font-size: 27px; display: block; letter-spacing: -.01em; }
+  .it small { font-size: 20px; color: var(--muted); font-weight: 500; }
+  .c1 { background: rgba(239,68,68,.16); color: #f87171; } .c2 { background: rgba(34,211,238,.15); color: #67e8f9; }
+  .c3 { background: rgba(16,185,129,.16); color: #34d399; } .c4 { background: rgba(167,139,250,.18); color: #c4b5fd; }
+  .c5 { background: rgba(251,191,36,.16); color: #fcd34d; } .c6 { background: rgba(236,72,153,.16); color: #f9a8d4; }
+  .ph1 { left: 660px; top: 120px; width: 370px; transform: rotate(6deg); z-index: 1; }
+  .ph2 { left: 618px; top: 560px; width: 350px; transform: rotate(-5deg); z-index: 2; }
+  .bottom { position: absolute; left: 72px; right: 72px; bottom: 64px; display: flex; align-items: center; justify-content: space-between; z-index: 3; }
+  .cta { font-size: 34px; padding: 20px 20px 20px 42px; }
+  .cta .arrow { width: 60px; height: 60px; } .cta .arrow svg { width: 28px; }
+  .url { font-size: 25px; text-align: right; line-height: 1.35; }
+  .url b { display: block; color: #fff; font-size: 28px; }
+  .shade { position: absolute; left: 0; right: 0; bottom: 0; height: 260px; background: linear-gradient(180deg, transparent, rgba(7,7,13,.96) 55%); z-index: 2; }
+</style></head>
+<body><div class="canvas">
+  <div class="glow" style="width:700px;height:700px;background:#7c3aed;right:-200px;top:200px;opacity:.6"></div>
+  <div class="glow" style="width:520px;height:520px;background:#0891b2;left:-260px;top:520px;opacity:.3"></div>
+  <div class="grid-lines"></div><div class="grain"></div>
+
+  <div class="top" data-logo="60"></div>
+  <div class="head"><h1 class="h">Tudo que você<br>quer ouvir.<br><span class="gt">Nada que te<br>interrompe.</span></h1></div>
+
+  <div class="list">
+    <div class="it"><span class="ic c1" data-icon="noads"></span><div><b>Sem anúncios</b><small>nem um segundo de propaganda</small></div></div>
+    <div class="it"><span class="ic c2" data-icon="lock"></span><div><b>Toca com a tela apagada</b><small>controles na tela de bloqueio</small></div></div>
+    <div class="it"><span class="ic c3" data-icon="offline"></span><div><b>Ouça offline</b><small>salve e escute sem internet</small></div></div>
+    <div class="it"><span class="ic c4" data-icon="lyrics"></span><div><b>Letra sincronizada</b><small>cante junto, linha por linha</small></div></div>
+    <div class="it"><span class="ic c5" data-icon="playlist"></span><div><b>Playlists e favoritas</b><small>do seu jeito, em qualquer aparelho</small></div></div>
+    <div class="it"><span class="ic c6" data-icon="users"></span><div><b>Siga seus artistas</b><small>as músicas deles direto no Início</small></div></div>
+  </div>
+
+  <div class="phone ph1" data-shot="home.png"></div>
+  <div class="phone ph2" data-shot="np.png"></div>
+  <div class="shade"></div>
+
+  <div class="bottom">
+    <span class="cta">Experimente grátis <span class="arrow" data-icon="arrow"></span></span>
+    <span class="url">Acesse<b>zmusic.zcloudpro.sbs</b></span>
+  </div>
+</div>
+<script src="parts.js"></script>
+</body></html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Tela apagada (story 1080×1920)</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1920px; }
+  /* área segura do Stories: nada importante nos 250 px de cima e de baixo */
+  .logo-wrap { position: absolute; top: 262px; left: 0; right: 0; text-align: center; }
+  .logo-wrap .url { display: block; font-size: 24px; margin-top: 10px; }
+  .pain { position: absolute; top: 410px; left: 70px; right: 70px; text-align: center; }
+  .pain .h { font-size: 78px; color: #fff; }
+  .ad { margin: 34px auto 0; width: 600px; display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-radius: 18px;
+    background: #1a1a22; border: 1px solid rgba(255,255,255,.1); position: relative; filter: grayscale(.2); }
+  .ad .thumb { width: 64px; height: 64px; border-radius: 12px; background: repeating-linear-gradient(45deg, #333 0 10px, #2a2a2a 10px 20px); flex: none; }
+  .ad div { text-align: left; color: #9a9aa6; font-size: 24px; line-height: 1.3; }
+  .ad div b { color: #fbbf24; font-size: 20px; letter-spacing: .1em; }
+  .ad .skip { margin-left: auto; font-size: 22px; color: #ddd; background: rgba(255,255,255,.08); padding: 10px 16px; border-radius: 10px; }
+  .ad::after { content: ""; position: absolute; left: -16px; right: -16px; top: 50%; height: 8px; border-radius: 8px; background: #ef4444; transform: rotate(-4deg); box-shadow: 0 0 30px rgba(239,68,68,.8); }
+
+  .phone { left: 50%; margin-left: -220px; top: 760px; width: 440px; z-index: 0; }
+  .lock { position: relative; height: 560px; background:
+    radial-gradient(circle at 30% 20%, rgba(139,92,246,.55), transparent 50%), radial-gradient(circle at 80% 70%, rgba(34,211,238,.35), transparent 55%), #08080f; }
+  .lock .time { text-align: center; padding-top: 70px; font: 800 120px/1 Sora, Inter; letter-spacing: -.04em; color: rgba(255,255,255,.95); }
+  .lock .date { text-align: center; font-size: 24px; font-weight: 600; color: rgba(255,255,255,.75); margin-top: 10px; }
+  .card { position: absolute; left: 18px; right: 18px; top: 250px; padding: 22px; border-radius: 28px; background: rgba(30,30,44,.72); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,.12); box-shadow: 0 20px 50px -20px #000; }
+  .card .row { display: flex; gap: 18px; align-items: center; }
+  .phone .screen .card img { width: 96px; height: 96px; border-radius: 16px; flex: none; }
+  .card .app { display: flex; align-items: center; gap: 8px; font-size: 17px; color: rgba(255,255,255,.7); font-weight: 600; margin-bottom: 14px; }
+  .card .app svg { width: 22px; height: 22px; }
+  .card b { display: block; font-size: 30px; }
+  .card small { font-size: 22px; color: rgba(255,255,255,.7); }
+  .bar { height: 6px; border-radius: 6px; background: rgba(255,255,255,.2); margin: 22px 0 8px; position: relative; }
+  .bar i { position: absolute; inset: 0 62% 0 0; border-radius: 6px; background: #fff; }
+  .ctrl { display: flex; justify-content: space-around; align-items: center; margin-top: 10px; }
+  .ctrl span { width: 44px; height: 44px; color: #fff; } .ctrl .pp { width: 78px; height: 78px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; }
+  .ctrl .pp svg { width: 40px; }
+  .lock .hint { position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; color: rgba(255,255,255,.5); font-size: 20px; }
+  .lock .eq { position: absolute; left: 20px; right: 20px; top: 610px; display: flex; gap: 8px; align-items: flex-end; height: 120px; opacity: .55; }
+  .lock .eq i { flex: 1; border-radius: 6px; background: linear-gradient(#a78bfa, #22d3ee); }
+
+  .answer { position: absolute; top: 1395px; left: 60px; right: 60px; text-align: center; }
+  .answer .h { font-size: 96px; }
+  .answer .sub { font-size: 34px; margin-top: 14px; color: #d4d4e4; }
+  .cta-wrap { position: absolute; top: 1572px; left: 0; right: 0; text-align: center; }
+  .cta { font-size: 40px; padding: 24px 24px 24px 50px; }
+  .cta .arrow { width: 70px; height: 70px; } .cta .arrow svg { width: 32px; }
+  
+  /* recorte do celular atrás do texto */
+  .fade { position: absolute; left: 0; right: 0; top: 1240px; height: 160px; background: linear-gradient(180deg, rgba(7,7,13,0), var(--bg) 70%); z-index: 1; }
+  .answer, .cta-wrap { z-index: 2; }
+</style></head>
+<body><div class="canvas">
+  <div class="glow" style="width:900px;height:900px;background:#7c3aed;left:90px;top:700px;opacity:.5"></div>
+  <div class="glow" style="width:500px;height:500px;background:#ef4444;left:-200px;top:300px;opacity:.18"></div>
+  <div class="glow" style="width:600px;height:600px;background:#06b6d4;right:-260px;bottom:120px;opacity:.35"></div>
+  <div class="grain"></div>
+
+  <div class="logo-wrap"><span data-logo="64"></span><span class="url">zmusic.zcloudpro.sbs</span></div>
+
+  <div class="pain">
+    <h1 class="h">Cansou de propaganda no meio da música?</h1>
+    <div class="ad"><span class="thumb"></span><div><b>ANÚNCIO</b><br>Sua música volta em 15 s…</div><span class="skip">Pular ▸</span></div>
+  </div>
+
+  <div class="phone">
+    <div class="island"></div>
+    <div class="screen"><div class="lock">
+      <div class="time">23:47</div><div class="date">sexta-feira, 9 de outubro</div>
+      <div class="card">
+        <div class="app"><svg viewBox="0 0 64 64"><g fill="#a78bfa"><rect x="12" y="26" width="6" height="12" rx="3"/><rect x="22" y="18" width="6" height="28" rx="3"/><rect x="32" y="12" width="6" height="40" rx="3"/><rect x="42" y="20" width="6" height="24" rx="3"/><rect x="52" y="28" width="4" height="8" rx="2"/></g></svg>zMusic · tocando agora</div>
+        <div class="row"><img src="demo/c7.jpg" alt=""><div><b>Pulso</b><small>DJ Atlas</small></div></div>
+        <div class="bar"><i></i></div>
+        <div class="ctrl"><span data-icon="prev"></span><span class="pp" data-icon="pause"></span><span data-icon="next"></span></div>
+      </div>
+    </div><div class="glare"></div></div>
+  </div>
+  
+
+  <div class="answer">
+    <h2 class="h">No zMusic <span class="gt">não tem.</span></h2>
+    <p class="sub">Zero anúncios — e toca até com a tela apagada.</p>
+  </div>
+  <div class="cta-wrap">
+    <span class="cta">Teste grátis no app <span class="arrow" data-icon="arrow"></span></span>
+  </div>
+</div>
+<script src="parts.js"></script>
+</body></html>
