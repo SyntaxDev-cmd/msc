@@ -144,6 +144,15 @@ Tudo configurável em **Painel › Marca e config.**
 
 Tudo foi reimplementado em **PHP puro + SQLite + JavaScript sem build**, para rodar em hospedagem compartilhada sem Composer/Node.
 
+## 📱 App Android (v2.6)
+- **APK pronto** em `download/zmusic.apk` (pacote `sbs.zcloudpro.zmusic`): o app abre o site — **mudou o site, mudou o app**, sem APK novo.
+- **Segundo plano**: músicas do servidor tocam com a tela apagada, com notificação e controles na tela de bloqueio.
+  As do YouTube pausam ao sair do app (termos do YouTube), mas o **Salvar ao ouvir** manda a música para o acervo e o player
+  troca sozinho para o arquivo do servidor no mesmo ponto — dali em diante ela também toca em segundo plano.
+- `app.json` (aviso de versão nova), `/.well-known/assetlinks.json` (links abrem no app), `privacy.php`, **excluir minha conta**,
+  e **modo loja** no painel (esconde downloads do YouTube dentro do app, para a Play Store).
+- Código e instruções em [`android/`](android/README.md). O GitHub Actions compila o APK a cada mudança.
+
 ## 🚀 Instalação na Hostinger (5 minutos)
 
 1. **Envie os arquivos** para `public_html` (ou uma subpasta / subdomínio) pelo Gerenciador de Arquivos ou Git do hPanel.

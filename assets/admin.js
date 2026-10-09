@@ -387,6 +387,16 @@
         <label class="fld"><span>Desconto para quem indicou, por indicado que assinar (%)</span><input type="number" min="0" max="100" name="referral_reward_pct" value="${esc(g.referral_reward_pct)}"></label>
         <label class="fld"><span>Desconto máximo acumulado (%) — 100 = pode ganhar mês grátis</span><input type="number" min="0" max="100" name="referral_max_pct" value="${esc(g.referral_max_pct)}"></label></div>
         <div class="row end"><button class="btn primary">Salvar</button></div></form>
+      <form class="card-form" id="f-app"><h3>📱 App Android</h3>
+        <p class="muted small">O app abre este site — <b>qualquer mudança no site já aparece no app</b>, sem gerar APK novo. Só use os campos de versão quando publicar um APK novo (parte nativa).
+        Links: <a href="app.json" target="_blank" rel="noopener">app.json</a> · <a href=".well-known/assetlinks.json" target="_blank" rel="noopener">assetlinks.json</a> · <a href="privacy.php" target="_blank" rel="noopener">política de privacidade</a> (use este link na Play Store).</p>
+        <label class="fld"><span>Link do APK (vazio = arquivo <b>download/zmusic.apk</b> deste site)</span><input name="app_apk_url" value="${esc(g.app_apk_url)}" placeholder="https://.../zmusic.apk"></label>
+        <div class="grid2"><label class="fld"><span>Versão (versionCode) mais nova publicada</span><input type="number" min="1" name="app_latest_version_code" value="${esc(g.app_latest_version_code)}"></label>
+        <label class="fld"><span>Versão mínima aceita (abaixo disso o app exige atualizar)</span><input type="number" min="0" name="app_min_version_code" value="${esc(g.app_min_version_code)}"></label></div>
+        <label class="fld"><span>Mensagem do aviso de atualização (opcional)</span><input name="app_message" value="${esc(g.app_message)}" maxlength="200"></label>
+        <label class="switch"><input type="checkbox" name="app_store_mode" ${g.app_store_mode === '1' ? 'checked' : ''}><i></i> Modo loja — dentro do app, esconde os botões de baixar do YouTube (exigido para publicar na Play Store; no site continua tudo igual)</label>
+        <label class="fld"><span>Impressão digital SHA-256 da chave do app (abre links do site direto no app)</span><input name="app_sha256" value="${esc(g.app_sha256)}"></label>
+        <div class="row end"><button class="btn primary">Salvar</button></div></form>
       <form class="card-form" id="f-dl"><h3>⬇️ Download do YouTube</h3>
         <p class="muted small">O YouTube costuma bloquear IPs de hospedagem ("confirme que não é um robô"). Quando isso acontece, o sistema baixa automaticamente por servidores alternativos open source (Invidious, Piped, Cobalt). Use <a href="install.php">Testar YouTube</a> para ver o que está funcionando no seu servidor.</p>
         <label class="switch"><input type="checkbox" name="mirrors_enabled" ${g.mirrors_enabled === '1' ? 'checked' : ''}><i></i> Usar servidores alternativos quando o YouTube bloquear</label>
@@ -427,6 +437,7 @@
     const onSubmit = (id, fn) => $(id)?.addEventListener('submit', async (e) => { e.preventDefault(); try { await fn(Sonora.formToObj(e.target)); } catch (ex) { toast(ex.message, 'err'); } });
     onSubmit('#f-brand', (o) => { o.support_url = o.brand_support_url; delete o.brand_support_url; return save({ global: o }, 'Marca atualizada 🎨'); });
     onSubmit('#f-mp', (o) => save({ global: { ...o, reseller_mp: o.reseller_mp ? '1' : '0' } }));
+    onSubmit('#f-app', (o) => save({ global: { ...o, app_store_mode: o.app_store_mode ? '1' : '0' } }));
     onSubmit('#f-dl', (o) => save({ global: { ...o, mirrors_enabled: o.mirrors_enabled ? '1' : '0' } }));
     onSubmit('#f-rules', (o) => save({ global: { ...o, signup_enabled: o.signup_enabled ? '1' : '0', referral_enabled: o.referral_enabled ? '1' : '0' } }));
     onSubmit('#f-mybrand', (o) => save({ mine: { brand: { name: o.b_name, tagline: o.b_tagline, color: o.b_color, color2: o.b_color2, support_url: o.b_support_url } } }, 'Marca atualizada 🎨'));

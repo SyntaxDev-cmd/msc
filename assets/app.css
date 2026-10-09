@@ -615,3 +615,10 @@ select.filter-input { padding: 8px 14px; color: var(--text); width: auto; }
 }
 .card .art { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, #1d1d29), #15151f); }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+
+/* ===== App Android / modo loja ===== */
+.btn.danger { background: #ef4444; border-color: #ef4444; color: #fff; }
+.btn.danger:hover { filter: brightness(1.1); }
+.store-mode [data-action=dl], .store-mode [data-pop=dl], .store-mode [data-action=download-all], .store-mode [data-kind], .store-mode #agent-dash { display: none !important; }
+html.in-app { -webkit-tap-highlight-color: transparent; }
+html.in-app body { overscroll-behavior-y: none; }

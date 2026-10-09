@@ -4,7 +4,7 @@
  *  - Músicas salvas para offline ficam no cache "sonora-media-v1" (gravadas pelo app)
  *    e são servidas daqui com suporte a Range — dá para avançar/voltar a música sem internet.
  */
-const SHELL = 'sonora-shell-v7';
+const SHELL = 'sonora-shell-v8';
 const MEDIA = 'sonora-media-v1';
 const SHELL_FILES = ['./', 'assets/app.css', 'assets/app.js', 'assets/admin.js', 'assets/icon.svg'];
 

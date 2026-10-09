@@ -19,6 +19,29 @@
 
   let CSRF = $('meta[name=csrf]').content;
 
+  /* ======================= App Android (zMusic) ======================= */
+  // Dentro do app o site ganha: música do servidor tocando com a tela apagada (notificação + tela de bloqueio),
+  // compartilhar/copiar nativos. window.zMusicApp só existe no app e só aceita mensagens deste site.
+  const NativeApp = (() => {
+    const b = window.zMusicApp;
+    const ok = !!(b && typeof b.postMessage === 'function');
+    return {
+      ok,
+      inApp: ok || /zMusicApp\//.test(navigator.userAgent),
+      send(o) { if (ok) try { b.postMessage(JSON.stringify(o)); } catch { /* app antigo */ } },
+    };
+  })();
+  if (NativeApp.inApp) document.documentElement.classList.add('in-app');
+  async function copyText(text, input) {
+    if (NativeApp.ok) { NativeApp.send({ t: 'copy', text }); return; }
+    try { await navigator.clipboard.writeText(text); } catch { if (input) { input.select(); document.execCommand('copy'); } }
+  }
+  async function shareText(text, url) {
+    if (NativeApp.ok) return NativeApp.send({ t: 'share', text, url });
+    if (navigator.share) return navigator.share({ text, url }).catch(() => {});
+    await copyText(url || text); toast('Link copiado!', 'ok');
+  }
+
   /* ======================= API ======================= */
   async function api(action, { params = {}, body = null } = {}) {
     const qs = new URLSearchParams({ action, ...params });
@@ -259,6 +282,13 @@
     load(autoplay, at = 0) {
       const t = this.track;
       if (!t) return;
+      if (t.remote && S.appHidden) {
+        // Termos do YouTube: o player deles não toca com o app em segundo plano. Pula para a próxima do servidor.
+        const j = this.queue.findIndex((id, i) => i > this.idx && !S.byId.get(id)?.remote);
+        if (j > 0) { this.idx = j; return this.load(autoplay, 0); }
+        S.bgBlocked = true; this.save(); updateNowPlaying(); sendMedia(true);
+        return;
+      }
       if (t.remote && !t.youtube_id) {
         resolveRemote(t).then(() => this.load(autoplay, at)).catch((e) => { toast(e.message, 'err'); setTimeout(() => this.next(true), 800); });
         return;
@@ -368,8 +398,9 @@
   };
 
   for (const el of [audio, video, ytEl]) {
-    el.addEventListener('play', () => { if (el === P.el) { document.body.classList.add('is-playing'); Viz.start(); setMSState(); } });
-    el.addEventListener('pause', () => { if (el === P.el) { document.body.classList.remove('is-playing'); setMSState(); P.save(); } });
+    el.addEventListener('play', () => { if (el === P.el) { document.body.classList.add('is-playing'); Viz.start(); setMSState(); sendMedia(true); } });
+    el.addEventListener('pause', () => { if (el === P.el) { document.body.classList.remove('is-playing'); setMSState(); P.save(); sendMedia(true); } });
+    el.addEventListener('seeked', () => { if (el === P.el) sendMedia(true); });
     el.addEventListener('ended', () => { if (el === P.el) P.next(true); });
     el.addEventListener('timeupdate', () => { if (el === P.el) onTime(); });
     el.addEventListener('loadedmetadata', () => { if (el === P.el) onTime(); });
@@ -401,6 +432,51 @@
       try { navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: el.playbackRate }); } catch { /* ignore */ }
     }
     if (Date.now() - lastSave > 5000) { lastSave = Date.now(); P.save(); }
+    sendMedia(false);
+    if (P.track?.remote && cur > 30 && !P.track.autosaved) autoSave(P.track);
+  }
+
+  /** Estado do player para a notificação/tela de bloqueio do app */
+  let lastMedia = 0;
+  function sendMedia(force) {
+    if (!NativeApp.ok || (!force && Date.now() - lastMedia < 5000)) return;
+    lastMedia = Date.now();
+    const t = P.track, el = P.el;
+    NativeApp.send({ t: 'media', has: !!t && !S.bgBlocked, remote: !!t?.remote, title: t?.title || '', artist: t?.artist || '', album: t?.album || t?.genre || '',
+      cover: t?.cover ? new URL(coverUrl(t), location.href).href : '', playing: !!t && !el.paused, pos: el.currentTime || 0, dur: el.duration || t?.duration || 0 });
+  }
+
+  /**
+   * Salvar ao ouvir: música tocada pelo YouTube por mais de 30 s vai para o acervo do servidor sozinha.
+   * Quando fica pronta, o player troca para o arquivo do servidor no mesmo ponto (sem o ouvinte perceber) —
+   * daí em diante ela toca até com a tela apagada e fica disponível para todo mundo.
+   */
+  async function autoSave(t) {
+    t.autosaved = true;
+    if (!store.get('autosave', true) || S.me?.app?.store_mode || S.offlineMode || !t.youtube_id) return;
+    const it = t.item || {};
+    const item = { ...it, source: 'youtube', source_id: t.youtube_id, title: t.title, artist: t.artist, album: t.album, genre: t.genre, duration: t.duration, thumb: t.thumb, kinds: ['audio'] };
+    try {
+      const r = await api('download', { body: { kind: 'audio', items: [item] } });
+      const res = r.results?.[0] || {};
+      if (res.track_id && (res.status === 'exists' || res.status === 'added')) return swapToServer(t.youtube_id, res.track_id);
+      if (res.status === 'queued') { t.saveJob = res.job_id; setTimeout(() => pollJobs(), 3000); }
+    } catch { /* limite do plano, sem rede…: segue tocando pelo YouTube */ }
+  }
+
+  /** Troca a música do YouTube pelo arquivo do servidor (fila inteira), mantendo o ponto em que estava */
+  async function swapToServer(ytId, trackId) {
+    if (!ytId || !trackId) return;
+    await ensureTracks([trackId]).catch(() => {});
+    if (!S.byId.has(trackId)) return;
+    const cur = P.track;
+    P.queue = P.queue.map((id) => { const x = S.byId.get(id); return x?.remote && x.youtube_id === ytId ? trackId : id; });
+    if (cur?.remote && cur.youtube_id === ytId) {
+      const at = P.el.currentTime || 0, wasPlaying = !P.el.paused;
+      P.load(wasPlaying, at);
+      if (NativeApp.ok) toast('✔ Música salva no servidor — agora toca até com a tela apagada', 'ok');
+    } else renderQueue();
+    P.save();
   }
 
   function updateNowPlaying() {
@@ -421,6 +497,7 @@
     }
     Lyrics.load(t);
     renderQueue();
+    sendMedia(true);
   }
   function setMSState() { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = P.el.paused ? 'paused' : 'playing'; }
   if ('mediaSession' in navigator) {
@@ -959,6 +1036,7 @@
       const newlyErr = r.jobs.filter((j) => j.status === 'error' && !knownDone.has(j.id));
       r.jobs.filter((j) => j.status === 'done' || j.status === 'error').forEach((j) => knownDone.add(j.id));
       S.jobs = r.jobs; S.pending = r.pending;
+      for (const j of newlyDone) if (j.source === 'youtube' && j.kind === 'audio') swapToServer(j.source_id, j.track_id);
       const badge = $('#dl-badge'); badge.hidden = !r.pending; badge.textContent = r.pending;
       if (newlyDone.length && !firstPoll) {
         await loadLibrary();
@@ -1161,6 +1239,7 @@
     document.body.classList.toggle('is-panel', !!S.me.panel);
     document.body.classList.toggle('is-admin', isAdmin());
     document.body.classList.toggle('no-offline', !Offline.allowed());
+    document.body.classList.toggle('store-mode', !!S.me.app?.store_mode);
     renderBanners();
     return S.me;
   }
@@ -1185,6 +1264,10 @@
     else if (u.is_trial && u.days_left !== null) out.push(['info', `✨ Teste grátis — ${u.days_left < 1 ? 'termina hoje' : `faltam ${u.days_left} dia${u.days_left > 1 ? 's' : ''}`}. Gostou? Assine e não perca suas músicas.`, S.me.plans.length ? `<button class="btn sm primary" data-action="renew">Ver planos</button>` : '']);
     else if (u.days_left !== null && u.days_left <= 5) out.push(['warn', `⏳ Seu plano vence ${u.days_left < 1 ? 'hoje' : `em ${u.days_left} dia${u.days_left > 1 ? 's' : ''}`} (${dateFmt(u.expires_at)}).`, S.me.plans.length ? `<button class="btn sm primary" data-action="renew">Renovar</button>` : '']);
     if (S.me.panel && !isAdmin() && u.credits < 0) out.push(['err', `Seu saldo de créditos está negativo (${u.credits}). Compre créditos para regularizar.`, `<a class="btn sm" href="#/account">Comprar</a>`]);
+    if (!NativeApp.inApp && /Android/i.test(navigator.userAgent) && S.me.app?.apk_url && !store.get('appBannerOff', false)) {
+      out.push(['info', `📱 Baixe o <b>app ${esc(S.me.brand.name)}</b> para Android — suas músicas tocam com a tela apagada.`,
+        `<a class="btn sm primary" href="${esc(S.me.app.apk_url)}">Baixar app</a><button class="btn sm ghost" data-action="app-banner-off">Agora não</button>`]);
+    }
     box.innerHTML = out.map(([t, msg, act]) => `<div class="banner ${t}"><span>${msg}</span>${act}</div>`).join('');
   }
 
@@ -1261,7 +1344,7 @@
           <p class="muted small">Abra o app do seu banco › Pix › Ler QR Code, ou copie o código:</p>
           <div class="copy-row"><input readonly value="${esc(payment.qr_code)}"><button class="btn sm primary" type="button" data-copy>${icon('copy')} Copiar</button></div>`);
         $('[data-copy]', m.el)?.addEventListener('click', async (e) => {
-          try { await navigator.clipboard.writeText(payment.qr_code); } catch { $('.copy-row input', m.el).select(); document.execCommand('copy'); }
+          await copyText(payment.qr_code, $('.copy-row input', m.el));
           e.target.closest('button').innerHTML = `${icon('check')} Copiado!`;
         });
       }
@@ -1381,6 +1464,7 @@
         <div class="ref-main"><h3>Indique e ganhe desconto</h3>
           <p>Seu amigo ganha <b>${S.me.referral.new_pct}%</b> na primeira assinatura e você ganha <b>${S.me.referral.reward_pct}%</b> de desconto na próxima renovação por cada amigo que assinar (acumula até ${S.me.referral.max_pct}%).</p>
           <div class="copy-row"><input readonly value="${esc(S.me.referral.url)}" id="ref-url"><button class="btn sm primary" id="ref-copy">${icon('copy')} Copiar</button>
+          ${NativeApp.ok || navigator.share ? `<button class="btn sm" id="ref-share">Compartilhar</button>` : ''}
           <a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`🎧 Ouça e baixe qualquer música no ${S.me.brand.name}! Cadastre-se pelo meu link e ganhe ${S.me.referral.new_pct}% de desconto: ${S.me.referral.url}`)}">WhatsApp</a></div></div>
         <div class="ref-stats"><div><b>${S.me.referral.invited}</b><span>indicados</span></div><div><b>${S.me.referral.paid}</b><span>assinaram</span></div><div><b>${S.me.referral.current_pct}%</b><span>seu desconto</span></div></div>
       </div>` : ''}
@@ -1403,7 +1487,18 @@
         <div class="row"><label class="switch"><input type="checkbox" id="dyn" ${store.get('dynColor', true) ? 'checked' : ''}><i></i> Cor do app acompanha a capa da música</label>
         <span class="spacer"></span><button class="btn primary">Salvar</button></div>
       </form>
-      <h2 class="h2">Pagamentos</h2><div id="my-pays"><div class="skeleton"></div></div>`;
+      <h2 class="h2">Reprodução</h2>
+      <div class="card-form">
+        <label class="switch"><input type="checkbox" id="autosave" ${store.get('autosave', true) ? 'checked' : ''} ${S.me.app?.store_mode ? 'disabled' : ''}><i></i>
+          Salvar ao ouvir — música tocada pelo YouTube vai sozinha para o acervo e passa a tocar do servidor (inclusive com a tela apagada no app)</label>
+        ${S.me.app?.apk_url && !NativeApp.inApp ? `<div class="row"><span>📱 <b>App para Android</b> — toca em segundo plano, com controles na notificação e na tela de bloqueio.</span><span class="spacer"></span><a class="btn sm primary" href="${esc(S.me.app.apk_url)}">Baixar o app</a></div>` : ''}
+      </div>
+      <h2 class="h2">Pagamentos</h2><div id="my-pays"><div class="skeleton"></div></div>
+      <h2 class="h2">Privacidade</h2>
+      <div class="card-form">
+        <p class="muted small">Veja como tratamos seus dados na <a href="privacy.php">política de privacidade</a>.</p>
+        ${u.role === 'admin' || S.me.impersonating ? '' : `<div class="row"><span>Excluir minha conta e todos os meus dados (biblioteca, playlists, favoritas e histórico). Não dá para desfazer.</span><span class="spacer"></span><button class="btn sm danger" data-action="delete-me">Excluir minha conta</button></div>`}
+      </div>`;
     $$('[data-plan]', view).forEach((b) => b.addEventListener('click', () => {
       const p = plans.find((x) => x.id === +b.dataset.plan);
       openPay({ kind: 'renew', plan_id: p.id, amount: p.price, title: `Plano ${p.name}`, desc: `${p.days} dias${u.expires_at && !u.expired ? ', somados ao tempo que você ainda tem' : ''}.${p.discount_pct ? ` Desconto de ${p.discount_pct}% aplicado 🎁` : ''}` });
@@ -1412,8 +1507,10 @@
       const k = packages[+b.dataset.pkg];
       openPay({ kind: 'credits', package: +b.dataset.pkg, amount: k.price, title: `${k.qty} créditos`, desc: 'Use para criar e renovar clientes.' });
     }));
-    $('#ref-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(S.me.referral.url); } catch { $('#ref-url').select(); document.execCommand('copy'); } toast('Link de indicação copiado! 🎁', 'ok'); });
-    $('#invite-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(S.me.invite_url); } catch { $('#invite').select(); document.execCommand('copy'); } toast('Link copiado!', 'ok'); });
+    $('#ref-copy')?.addEventListener('click', async () => { await copyText(S.me.referral.url, $('#ref-url')); toast('Link de indicação copiado! 🎁', 'ok'); });
+    $('#ref-share')?.addEventListener('click', () => shareText(`🎧 Ouça e baixe qualquer música no ${S.me.brand.name}! Cadastre-se pelo meu link e ganhe ${S.me.referral.new_pct}% de desconto:`, S.me.referral.url));
+    $('#invite-copy')?.addEventListener('click', async () => { await copyText(S.me.invite_url, $('#invite')); toast('Link copiado!', 'ok'); });
+    $('#autosave')?.addEventListener('change', (e) => { store.set('autosave', e.target.checked); toast(e.target.checked ? 'Salvar ao ouvir ligado' : 'Salvar ao ouvir desligado'); });
     $('#dyn').addEventListener('change', (e) => { store.set('dynColor', e.target.checked); if (P.track) Accent.from(P.track); else applyBrand(S.me.brand); });
     $('#profile').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1532,7 +1629,30 @@
     } catch (e) { body.innerHTML = `<div class="empty"><h3>${esc(e.message)}</h3></div>`; }
   }
 
-  window.Sonora = { api, $, $$, esc, icon, toast, modal, formToObj, money, dateFmt, fmtSize, gradient, S, route, refreshMe, confetti, openPay, isAdmin, views: {} };
+  /** Chamado pelo app quando vai para o fundo / volta */
+  function appVisible(v) {
+    S.appHidden = !v;
+    if (!v) {
+      if (P.track?.remote && !P.el.paused) { P.pause(); S.bgPaused = true; }
+      return;
+    }
+    if (S.bgBlocked || S.bgPaused) {
+      const was = S.bgBlocked; S.bgBlocked = false; S.bgPaused = false;
+      if (P.track) { was ? P.load(true) : P.play(); toast('▶ Continuando. Músicas pelo YouTube só tocam com o app aberto — as salvas no servidor tocam com a tela apagada.'); }
+    }
+  }
+  /** Botão voltar do Android: fecha o que estiver aberto. true = tratado */
+  function back() {
+    if (!$('#modal').hidden) { $('#modal').click(); if (!$('#modal').hidden) { $('#modal').hidden = true; $('#modal').innerHTML = ''; } return true; }
+    if (!$('#pop').hidden) { closePop(); return true; }
+    if ($('#np').classList.contains('open')) { closeNP(); return true; }
+    const r = currentRoute()[0] || 'home';
+    if (r !== 'home') { if (history.length > 1) history.back(); else location.hash = '#/home'; return true; }
+    return false;
+  }
+  const player = { play: () => P.play(), pause: () => P.pause(), toggle: () => P.toggle(), next: () => P.next(), prev: () => P.prev(), seek: (s) => P.seek(+s) };
+
+  window.Sonora = { player, back, appVisible, inApp: NativeApp.inApp, api, $, $$, esc, icon, toast, modal, formToObj, money, dateFmt, fmtSize, gradient, S, route, refreshMe, confetti, openPay, isAdmin, views: {} };
 
   /* ======================= Eventos globais ======================= */
   document.addEventListener('click', (e) => {
@@ -1581,6 +1701,13 @@
       'job-retry': async () => { await api('job_retry', { body: { id: +a.closest('[data-job]').dataset.job } }); pollJobs(true); },
       'job-cancel': async () => { await api('job_cancel', { body: { id: +a.closest('[data-job]').dataset.job } }); pollJobs(true); },
       logout: async () => { await api('logout', { body: {} }).catch(() => {}); await Offline.clear().catch(() => {}); store.set('lib', []); store.set('player', null); location.replace('./'); },
+      'app-banner-off': () => { store.set('appBannerOff', true); renderBanners(); },
+      'delete-me': () => modal(`<h3>Excluir minha conta</h3>
+          <p class="muted">Isso apaga sua conta, biblioteca, playlists, favoritas e histórico. Não dá para desfazer.</p>
+          <form><label class="fld"><span>Digite sua senha para confirmar</span><input type="password" name="password" required autocomplete="current-password"></label>
+          <div class="row"><span class="spacer"></span><button type="button" class="btn ghost" data-close>Cancelar</button><button class="btn danger">Excluir para sempre</button></div></form>`, {
+        onSubmit: async (o) => { await api('delete_me', { body: o }); try { localStorage.clear(); } catch { /* */ } location.replace('./'); },
+      }),
       'stop-impersonate': async () => { await api('stop_impersonate', { body: {} }); location.replace('./#/admin/accounts'); location.reload(); },
       renew: () => { location.hash = '#/account'; setTimeout(() => $('#plans-grid')?.scrollIntoView({ behavior: 'smooth' }), 120); },
       'offline-list': () => Offline.save(listIds()),

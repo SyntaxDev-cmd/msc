@@ -106,6 +106,7 @@ $v = APP_VERSION;
       <button type="button" class="btn ghost sm" data-login-toggle>✨ Criar conta grátis — teste de <?= (int) $brand['trial_days'] ?> dia<?= $brand['trial_days'] > 1 ? 's' : '' ?></button>
     <?php endif; ?>
     <?php if ($brand['support_url']): ?><a class="muted small" href="<?= $h($brand['support_url']) ?>" target="_blank" rel="noopener">Precisa de ajuda? Fale com o suporte</a><?php endif; ?>
+    <a class="muted small" href="privacy.php">Política de privacidade</a>
   </form>
   <?php if ($brand['signup']): ?>
   <form id="signup-form" class="login-card"<?= $inviter ? '' : ' hidden' ?>>
@@ -123,6 +124,7 @@ $v = APP_VERSION;
     <input type="email" name="email" placeholder="E-mail (opcional)">
     <input type="tel" name="phone" placeholder="WhatsApp (opcional)">
     <button class="btn primary">Começar teste grátis</button>
+    <p class="muted small">Ao criar a conta você concorda com a <a href="privacy.php">política de privacidade</a>.</p>
     <p class="login-err" role="alert"></p>
     <button type="button" class="btn ghost sm" data-login-toggle>Já tenho conta</button>
   </form>

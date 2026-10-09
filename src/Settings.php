@@ -40,6 +40,14 @@ final class Settings
             'referral_new_pct' => '10',
             'referral_reward_pct' => '20',
             'referral_max_pct' => '50',
+            // App Android (WebView): o app abre o site, então quase tudo atualiza sozinho
+            'app_store_mode' => '0',          // 1 = esconde downloads do YouTube dentro do app (regras da Play Store)
+            'app_apk_url' => '',              // vazio = download/zmusic.apk deste site
+            'app_latest_version_code' => '1', // versão nativa mais nova (o app avisa quem tiver uma menor)
+            'app_min_version_code' => '0',    // abaixo disso o app exige atualizar
+            'app_message' => '',
+            'app_sha256' => '10:BF:6C:EF:22:70:1A:B1:3A:88:16:25:CD:5D:5E:D6:46:B8:90:86:F0:33:C9:8B:EB:6F:77:A1:A7:C1:CF:7B',
+            'app_package' => 'sbs.zcloudpro.zmusic',
         ];
     }
 
@@ -67,6 +75,22 @@ final class Settings
             Db::exec('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v', [$k, (string) $v]);
         }
         self::$cache = null;
+    }
+
+    /** Link de download do APK (o configurado no painel ou o arquivo download/zmusic.apk do site) */
+    public static function apkUrl(): string
+    {
+        $u = trim(self::get('app_apk_url'));
+        if ($u !== '') {
+            return $u;
+        }
+        return is_file(APP_ROOT . '/download/zmusic.apk') ? self::baseUrl() . 'download/zmusic.apk' : '';
+    }
+
+    /** A requisição veio de dentro do app Android? */
+    public static function inApp(): bool
+    {
+        return str_contains((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 'zMusicApp/');
     }
 
     /** URL pública do sistema (para webhooks e links de convite) */

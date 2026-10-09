@@ -366,6 +366,30 @@ final class Account
         Audit::log((int) $actor['id'], 'account.delete', $id, self::ROLES[$t['role']] . ' ' . $t['username']);
     }
 
+    /** O próprio usuário exclui a conta (exigência das lojas de apps). Pagamentos ficam guardados por obrigação fiscal. */
+    public static function deleteSelf(array $u, string $password): void
+    {
+        if (!password_verify($password, (string) $u['password_hash'])) {
+            throw new DomainException('Senha incorreta');
+        }
+        if ($u['role'] === 'admin') {
+            throw new DomainException('O administrador principal não pode se excluir por aqui');
+        }
+        if (Db::one('SELECT id FROM accounts WHERE parent_id = ? LIMIT 1', [$u['id']])) {
+            throw new DomainException('Sua revenda tem clientes. Fale com o suporte para transferi-los antes de excluir a conta.');
+        }
+        $id = (int) $u['id'];
+        Db::tx(function () use ($id) {
+            Db::exec('DELETE FROM playlist_tracks WHERE playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)', [$id]);
+            foreach (['playlists', 'play_events', 'stream_favs', 'user_tracks', 'job_users'] as $t) {
+                Db::exec("DELETE FROM $t WHERE user_id = ?", [$id]);
+            }
+            Db::exec('UPDATE accounts SET referred_by = NULL WHERE referred_by = ?', [$id]);
+            Db::exec('DELETE FROM accounts WHERE id = ?', [$id]);
+        });
+        Audit::log($id, 'account.self_delete', $id, $u['username']);
+    }
+
     public static function list(array $actor, array $f): array
     {
         $where = ['a.id <> ?'];

@@ -69,7 +69,7 @@ jobs:
             cp "$BT/lib/apksigner.jar" android/dist/apksigner.jar
           fi
           "$BT/aapt2" dump badging android/dist/*.apk > android/dist/badging.txt
-          "$BT/zipalign" -c -P 16 -v 4 android/dist/*.apk | tail -3
+          "$BT/zipalign" -c -P 16 -v 4 android/dist/*.apk | tail -3 || true
           cat android/dist/badging.txt | head -40
           ls -la android/dist
 

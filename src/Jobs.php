@@ -95,7 +95,7 @@ final class Jobs
             ? Db::all('SELECT j.*, a.username FROM jobs j LEFT JOIN accounts a ON a.id = j.user_id' . $order)
             : Db::all('SELECT j.*, NULL username FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ?' . $order, [$user['id']]);
         return array_map(fn($j) => [
-            'id' => (int) $j['id'], 'source' => $j['source'], 'kind' => $j['kind'], 'title' => $j['title'],
+            'id' => (int) $j['id'], 'source' => $j['source'], 'source_id' => $j['source_id'], 'kind' => $j['kind'], 'title' => $j['title'],
             'artist' => $j['artist'], 'thumb' => $j['thumb'], 'status' => $j['status'],
             'progress' => round((float) $j['progress'], 1), 'message' => $j['message'],
             'track_id' => $j['track_id'] ? (int) $j['track_id'] : null, 'updated_at' => (int) $j['updated_at'],

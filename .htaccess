@@ -7,6 +7,9 @@ DirectoryIndex index.php
     RewriteRule ^(src|bin|storage)(/|$) - [F,L]
     RewriteRule ^(config\.php|config\.example\.php|worker\.php|README\.md)$ - [F,L]
     RewriteRule (^|/)\.git - [F,L]
+    # App Android: configuração (versão/APK) e verificação de links do app
+    RewriteRule ^app\.json$ api.php?action=app_config [L,QSA]
+    RewriteRule ^\.well-known/assetlinks\.json$ api.php?action=assetlinks [L,QSA]
 </IfModule>
 
 <FilesMatch "^(config\.php|config\.example\.php|worker\.php)$">
@@ -25,4 +28,8 @@ DirectoryIndex index.php
 
 <IfModule mod_mime.c>
     AddType application/manifest+json .webmanifest
+</IfModule>
+
+<IfModule mod_mime.c>
+    AddType application/vnd.android.package-archive .apk
 </IfModule>

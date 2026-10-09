@@ -21,6 +21,28 @@ if ($action === 'mp_webhook') {
     return;
 }
 
+/* ---------- App Android: configuração pública (app.json) e verificação de links (assetlinks.json) ---------- */
+if ($action === 'app_config') {
+    header('Access-Control-Allow-Origin: *');
+    json_out([
+        'name' => Settings::get('brand_name'),
+        'latest_version_code' => (int) Settings::get('app_latest_version_code'),
+        'min_version_code' => (int) Settings::get('app_min_version_code'),
+        'apk_url' => Settings::apkUrl(),
+        'message' => Settings::get('app_message'),
+        'site_version' => APP_VERSION,
+    ]);
+    return;
+}
+if ($action === 'assetlinks') {
+    $fps = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', strtoupper(Settings::get('app_sha256'))) ?: []), fn($f) => preg_match('/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/', $f)));
+    json_out($fps ? [[
+        'relation' => ['delegate_permission/common.handle_all_urls'],
+        'target' => ['namespace' => 'android_app', 'package_name' => Settings::get('app_package'), 'sha256_cert_fingerprints' => $fps],
+    ]] : []);
+    return;
+}
+
 /* ---------- Agente de download (programa no PC do administrador; autentica por token) ---------- */
 if (str_starts_with($action, 'agent_') && in_array($action, ['agent_next', 'agent_upload', 'agent_fail'], true)) {
     try {
@@ -69,6 +91,11 @@ function me_payload(array $u): array
             ? Settings::baseUrl() . (Account::isAdmin($u) ? '' : '?r=' . rawurlencode($u['username'])) : null,
         'roles' => Account::ROLES,
         'referral' => Referral::stats($u),
+        'app' => [
+            'in_app' => Settings::inApp(),
+            'store_mode' => Settings::inApp() && Settings::get('app_store_mode') === '1',
+            'apk_url' => Settings::apkUrl(),
+        ],
         'csrf' => Auth::csrf(),
     ];
 }
@@ -149,7 +176,7 @@ try {
     $panel = $admin || $reseller;
 
     // Conta vencida: só pode ver a conta e pagar
-    $whenExpired = ['me', 'logout', 'stop_impersonate', 'profile_save', 'pay_create', 'pay_status', 'payments', 'status'];
+    $whenExpired = ['me', 'logout', 'stop_impersonate', 'profile_save', 'pay_create', 'pay_status', 'payments', 'status', 'delete_me'];
     if (Account::expired($user) && !in_array($action, $whenExpired, true)) {
         json_out(['error' => 'expired', 'message' => 'Seu plano venceu. Renove para continuar ouvindo.'], 402);
         return;
@@ -162,6 +189,13 @@ try {
             return;
 
         case 'logout':
+            Auth::logout();
+            json_out(['ok' => true]);
+            return;
+
+        case 'delete_me':
+            need(empty($_SESSION['impersonator']), 'Saia do modo "entrar como" antes');
+            Account::deleteSelf($user, (string) ($input['password'] ?? ''));
             Auth::logout();
             json_out(['ok' => true]);
             return;
