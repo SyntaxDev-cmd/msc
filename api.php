@@ -307,6 +307,15 @@ try {
             return;
 
         case 'lyrics':
+            if (empty($_GET['id']) && !empty($_GET['title'])) {
+                // música tocando direto do YouTube (ainda não baixada)
+                session_write_close();
+                $a = mb_substr((string) ($_GET['artist'] ?? ''), 0, 120);
+                $ti = mb_substr((string) $_GET['title'], 0, 160);
+                $du = (int) ($_GET['duration'] ?? 0);
+                json_out(Cache::remember('lyr:' . md5($a . '|' . $ti), 86400 * 7, fn() => Metadata::lyrics($a, $ti, '', $du)));
+                return;
+            }
             $t = Library::get((int) ($_GET['id'] ?? 0));
             if (!$t || !Library::canAccess($user, (int) $t['id'])) {
                 json_out(['error' => 'not found'], 404);

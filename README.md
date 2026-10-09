@@ -20,6 +20,16 @@ storage/library/
 
 ## ✨ Recursos
 
+**▶ Tocar qualquer música na hora, sem baixar**
+- Todo resultado de busca tem o botão **Tocar**: a música toca na hora pelo **player oficial do YouTube**
+  (IFrame API) integrado ao nosso player — fila, próxima/anterior, letra e tela “tocando agora” funcionam igual.
+- No catálogo do artista, **“Ouvir tudo agora”** toca a discografia inteira em sequência.
+- Como quem toca é o navegador do ouvinte, **o bloqueio do IP do servidor não interfere**.
+- Se o dono de um vídeo não permitir tocar fora do YouTube, o sistema troca sozinho por outra versão da mesma música.
+- Baixar continua opcional: serve para guardar na biblioteca do servidor e para ouvir **offline**.
+- Regra do YouTube: a janelinha do vídeo fica visível enquanto toca (no celular, o YouTube pausa com a tela
+  bloqueada — para ouvir em segundo plano, baixe a música).
+
 **Busca e download**
 - **Baixa qualquer música ou vídeo que existir no YouTube** — é a fonte padrão da busca (até 50 resultados com “Carregar mais”).
 - **Artista (catálogo completo)**: abre a página oficial do artista no YouTube Music e junta a lista “todas as músicas”, **todas as faixas de todos os álbuns, singles e EPs** (abertos em paralelo), a busca de músicas e os clipes do canal oficial — sem duplicar, até 800 faixas, com botão **“Baixar discografia”**.

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '2.2.2');
+define('APP_VERSION', '2.3.0');
 
 $GLOBALS['APP_CFG'] = array_replace(
     require APP_ROOT . '/config.example.php',

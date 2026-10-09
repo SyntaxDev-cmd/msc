@@ -558,3 +558,19 @@ select.filter-input { padding: 8px 14px; color: var(--text); width: auto; }
   .ref-gift { text-align: left; }
   .ref-stats div { flex: 1; min-width: 0; }
 }
+
+/* Player do YouTube (toca sem baixar) — sempre visível enquanto toca */
+.yt-float { position: fixed; right: 16px; bottom: calc(var(--player-h) + 14px); width: 356px; height: 200px; z-index: 45; border-radius: 16px; overflow: hidden; background: #000;
+  box-shadow: 0 24px 60px -16px rgba(0,0,0,.9); border: 1px solid var(--line); transition: left .35s, top .35s, width .35s, height .35s; }
+.yt-float iframe, .yt-float #yt-host { width: 100%; height: 100%; display: block; border: 0; }
+.yt-float .yt-x { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.55); color: #fff; }
+.yt-float .yt-badge { position: absolute; left: 10px; bottom: 8px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: rgba(0,0,0,.6); color: #fff; pointer-events: none; }
+.yt-float.in-np { z-index: 60; border-radius: 20px; }
+.yt-float.in-np .yt-badge { display: none; }
+.np.remote .np-art, .np.remote #np-viz { visibility: hidden; }
+.yt-float .i-pause, .is-playing .yt-float .i-play { display: none; }
+.is-playing .yt-float .i-pause { display: block; }
+.res-act .btn.primary { box-shadow: none; }
+@media (max-width: 860px) {
+  .yt-float:not(.in-np) { right: 8px; left: 8px; width: auto; height: 200px; bottom: calc(var(--player-h) + 70px); }
+}

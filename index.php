@@ -251,6 +251,11 @@ $v = APP_VERSION;
   </div>
 </section>
 
+<div class="yt-float" id="yt-float" hidden>
+  <div id="yt-host"></div>
+  <button class="icon-btn yt-x" data-action="toggle" title="Pausar/tocar"><svg class="i-play"><use href="#i-play"/></svg><svg class="i-pause"><use href="#i-pause"/></svg></button>
+  <span class="yt-badge">YouTube · tocando sem baixar</span>
+</div>
 <div class="pop" id="pop" hidden></div>
 <div class="toasts" id="toasts"></div>
 <audio id="audio" preload="metadata"></audio>
