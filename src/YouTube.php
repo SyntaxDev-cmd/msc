@@ -30,7 +30,7 @@ final class YouTube
      */
     public static function search(string $q, int $limit): array
     {
-        $limit = max(1, min(50, $limit));
+        $limit = max(1, min(100, $limit));
         $errors = [];
         if (cfg('youtube_api_key')) {
             try {

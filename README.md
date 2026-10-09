@@ -22,7 +22,7 @@ storage/library/
 
 **Busca e download**
 - **Baixa qualquer música ou vídeo que existir no YouTube** — é a fonte padrão da busca (até 50 resultados com “Carregar mais”).
-- **Artista (catálogo completo)**: junta todas as músicas do artista no YouTube Music (áudio oficial, com álbum e capa) com os clipes do canal oficial, sem duplicar — até 300 faixas, com botão **“Baixar discografia”**.
+- **Artista (catálogo completo)**: abre a página oficial do artista no YouTube Music e junta a lista “todas as músicas”, **todas as faixas de todos os álbuns, singles e EPs** (abertos em paralelo), a busca de músicas e os clipes do canal oficial — sem duplicar, até 800 faixas, com botão **“Baixar discografia”**.
 - Outras fontes: **Catálogo oficial** (iTunes, com gênero/álbum/capa oficiais), **Artista (discografia)** — até 150 músicas do artista para baixar tudo com 1 clique — e **Músicas livres** (Jamendo). Se o catálogo não encontrar a música, a busca cai automaticamente no YouTube.
 - Mesmo vídeos do YouTube ganham gênero e capa oficiais quando a música é reconhecida no catálogo; os demais vão para a pasta `Outros/Canal`.
 - Escolha **Áudio** ou **Vídeo** antes de baixar.
@@ -83,10 +83,22 @@ storage/library/
 - Sem internet o app abre sozinho no modo offline e toca as músicas salvas, **inclusive avançar/voltar** (o service worker responde pedidos de trecho/Range).
 - Página **Offline** mostra espaço usado/livre, “Salvar favoritas”, “Salvar tudo” e “Limpar”. Requer HTTPS (SSL grátis da Hostinger).
 
-### Acervo compartilhado, bibliotecas separadas
-Os arquivos ficam num acervo único no servidor (sem duplicar espaço), mas **cada cliente tem a sua biblioteca**,
-favoritas e contagem de reproduções. Se a música já existe no servidor, ela entra **na hora** para o cliente
-(⚡ “Adicionar”) **sem gastar download** do plano.
+### Acervo compartilhado (baixou uma vez, todo mundo ouve)
+Toda música baixada por qualquer usuário fica no **acervo do servidor** e qualquer cliente ativo **ouve na hora,
+sem baixar de novo** — na busca ela aparece com o botão **Ouvir**, e a página **Explorar acervo** mostra tudo
+(“Chegaram agora”, “Em alta no servidor”, artistas e gêneros). Baixar no aparelho só é necessário para o **modo offline**.
+Cada cliente continua com a própria biblioteca, favoritas, playlists e contagem de reproduções.
+
+### Playlists
+Crie playlists pelo **+** do menu lateral, pelo menu ⋯ de qualquer música ou pelo botão **Playlist** de um
+artista/gênero (adiciona tudo de uma vez). Arraste as músicas para mudar a ordem; toque, embaralhe ou salve offline.
+
+### 🎁 Indique e ganhe desconto
+Cada cliente tem um link pessoal (`seusite.com/?i=usuario`, com botão de WhatsApp em “Minha conta”).
+Quem se cadastra por ele ganha teste grátis e **desconto na 1ª assinatura** (padrão 10%); quando o indicado
+assina, **quem indicou ganha desconto acumulável** na próxima renovação (padrão 20% por indicado, até 50%; com 100%
+a renovação sai de graça, sem passar pelo Mercado Pago). O indicado fica com a mesma revenda de quem indicou.
+Tudo configurável em **Painel › Marca e config.**
 
 ## 🔎 Repositórios / APIs pesquisados e usados
 

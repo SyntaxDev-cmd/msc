@@ -30,6 +30,10 @@ final class Settings
             'cobalt_url' => '',
             'cobalt_key' => '',
             'yt_proxy' => '',
+            'referral_enabled' => '1',
+            'referral_new_pct' => '10',
+            'referral_reward_pct' => '20',
+            'referral_max_pct' => '50',
         ];
     }
 

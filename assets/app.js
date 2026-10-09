@@ -54,7 +54,7 @@
     const { tracks } = await api('library');
     S.tracks = tracks;
     store.set('lib', tracks);
-    S.byId = new Map(tracks.map((t) => [t.id, t]));
+    for (const t of tracks) S.byId.set(t.id, t);
     renderSidebarGenres();
   }
 
@@ -80,6 +80,19 @@
       m.set(a, x);
     }
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+  }
+
+  /** Faixas do acervo compartilhado (de outros usuários) ficam conhecidas para tocar */
+  function addTracks(list) { for (const t of list || []) if (!S.byId.has(t.id)) S.byId.set(t.id, t); return list; }
+  async function ensureTracks(ids) {
+    const missing = ids.filter((id) => !S.byId.has(id));
+    if (missing.length) addTracks((await api('tracks', { params: { ids: missing.join(',') } })).tracks);
+  }
+
+  async function loadPlaylists() {
+    try { S.playlists = (await api('playlists')).playlists; } catch { S.playlists = S.playlists || []; }
+    $('#side-playlists').innerHTML = S.playlists.map((p) => `<a href="#/playlist/${p.id}"><span>${esc(p.name)}</span><small>${p.count}</small></a>`).join('')
+      || '<span class="muted small" style="padding:0 12px">Crie sua primeira no +</span>';
   }
 
   function renderSidebarGenres() {
@@ -232,7 +245,10 @@
     Lyrics.sync(cur);
     if (!P.counted && (cur > 30 || (dur && cur > dur / 2))) {
       P.counted = true; const t = P.track;
-      if (t) { t.plays++; t.last_played = Date.now() / 1000; api('played', { body: { id: t.id } }).catch(() => {}); }
+      if (t) {
+        t.plays++; t.last_played = Date.now() / 1000; api('played', { body: { id: t.id } }).catch(() => {});
+        if (!S.tracks.includes(t)) { S.tracks.push(t); renderSidebarGenres(); }
+      }
     }
     if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && dur && isFinite(dur)) {
       try { navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: el.playbackRate }); } catch { /* ignore */ }
@@ -495,6 +511,8 @@
       <button class="mi" data-pop="enqueue">${icon('queue')}Adicionar à fila</button>
       <button class="mi" data-pop="artist">${icon('music')}Ir para ${esc(mainArtist(t.artist))}</button>
       <button class="mi" data-pop="fav">${icon(t.favorite ? 'heart-fill' : 'heart')}${t.favorite ? 'Remover dos favoritos' : 'Favoritar'}</button>
+      <button class="mi" data-pop="playlist">${icon('plus')}Adicionar à playlist</button>
+      ${currentRoute()[0] === 'playlist' ? `<button class="mi" data-pop="pl-remove">${icon('close')}Remover desta playlist</button>` : ''}
       ${Offline.allowed() ? `<button class="mi${Offline.has(t.id) ? ' on' : ''}" data-pop="offline">${icon('offline')}${Offline.has(t.id) ? 'Remover do offline' : 'Disponível offline'}</button>` : ''}
       <button class="mi" data-pop="file">${icon('download')}Baixar arquivo (${fmtSize(t.size)})</button>
       ${t.owners === null || !isAdmin() ? `<button class="mi danger" data-pop="remove">${icon('trash')}Remover da minha biblioteca</button>` : ''}
@@ -505,6 +523,8 @@
       if (a === 'artist') location.hash = '#/artist/' + encodeURIComponent(mainArtist(t.artist));
       if (a === 'fav') toggleFav(t);
       if (a === 'file') location.href = `stream.php?id=${t.id}&download=1`;
+      if (a === 'playlist') return pickPlaylist(anchor, [t.id]);
+      if (a === 'pl-remove') { await api('playlist_remove', { body: { id: +currentRoute()[1], track_id: t.id } }); loadPlaylists(); route(); return; }
       if (a === 'offline') { if (Offline.has(t.id)) { await Offline.remove([t.id]); toast('Removida do offline'); route(); } else Offline.save([t.id]); }
       const removing = a === 'remove' && confirm(`Remover "${t.title}" da sua biblioteca?`);
       const deleting = a === 'delete' && confirm(`Excluir "${t.title}" do servidor? Some da biblioteca de todos.`);
@@ -540,7 +560,7 @@
     const navKey = ['genre', 'artist', 'all'].includes(name) ? 'library' : name === 'admin' ? (a ? `admin/${a}` : 'admin') : name;
     $$('[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === navKey));
     closePop();
-    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline };
+    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline, explore: vExplore, playlist: vPlaylist };
     if (name === 'admin') Sonora.views.admin(a, b);
     else (views[name] || vHome)(a, b);
     $('#main').scrollTop = 0;
@@ -598,7 +618,7 @@
     view.innerHTML = `<div class="crumbs"><a href="#/library">Biblioteca</a> › <span>${esc(g)}</span></div>
       <div class="hero"><div class="art" style="background:${gradient(g)}"><div class="ph">${esc(g[0] || '?')}</div></div>
       <div class="meta"><div class="kicker">Gênero</div><h1 class="h1">${esc(g)}</h1><p class="sub">${list.length} faixas</p>
-      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div></div></div>
+      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list" title="Adicionar tudo a uma playlist">${icon('plus')} Playlist</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div></div></div>
       <h2 class="h2">Artistas</h2><div class="grid">${artistsOf(g).map(artistCard).join('')}</div>
       <h2 class="h2">Faixas</h2>${trackList(list)}`;
   }
@@ -610,7 +630,7 @@
     view.innerHTML = `<div class="crumbs"><a href="#/library">Biblioteca</a> › <a href="#/genre/${encodeURIComponent(g)}">${esc(g)}</a> › <span>${esc(a)}</span></div>
       <div class="hero"><div class="art" style="border-radius:50%">${cover ? `<img src="${coverUrl(cover)}" alt="">` : `<div class="ph" style="background:${gradient(a)}">${esc(a[0] || '?')}</div>`}</div>
       <div class="meta"><div class="kicker">Artista · ${esc(g)}</div><h1 class="h1">${esc(a)}</h1><p class="sub">${list.length} faixas na sua biblioteca</p>
-      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}
+      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list" title="Adicionar tudo a uma playlist">${icon('plus')} Playlist</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}
       <a class="btn" href="#/search?q=${encodeURIComponent(a)}&s=artist">${icon('search')} Buscar mais músicas</a></div></div></div>
       ${trackList(list)}`;
   }
@@ -640,7 +660,7 @@
     const list = S.tracks.filter((t) => t.favorite);
     view.innerHTML = `<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#ec4899)"><div class="ph" style="color:#fff">${icon('heart-fill')}</div></div>
       <div class="meta"><div class="kicker">Playlist</div><h1 class="h1">Favoritas</h1><p class="sub">${list.length} faixas</p>
-      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div>` : ''}</div></div>
+      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list" title="Adicionar tudo a uma playlist">${icon('plus')} Playlist</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div>` : ''}</div></div>
       ${list.length ? trackList(list) : '<div class="empty"><h3>Nenhuma favorita ainda</h3><p>Toque no ♥ de uma música.</p></div>'}`;
   }
 
@@ -1070,10 +1090,18 @@
       </div>
       ${S.me.invite_url ? `<div class="toolbar"><span>🔗 <b>Seu link de convite</b> — quem se cadastrar ganha teste grátis e fica na sua conta:</span>
         <input class="filter-input" readonly value="${esc(S.me.invite_url)}" style="flex:1;min-width:200px" id="invite"><button class="btn sm primary" id="invite-copy">${icon('copy')} Copiar</button></div>` : ''}
+      ${S.me.referral?.enabled && !isAdmin() ? `<div class="ref-card">
+        <div class="ref-gift">🎁</div>
+        <div class="ref-main"><h3>Indique e ganhe desconto</h3>
+          <p>Seu amigo ganha <b>${S.me.referral.new_pct}%</b> na primeira assinatura e você ganha <b>${S.me.referral.reward_pct}%</b> de desconto na próxima renovação por cada amigo que assinar (acumula até ${S.me.referral.max_pct}%).</p>
+          <div class="copy-row"><input readonly value="${esc(S.me.referral.url)}" id="ref-url"><button class="btn sm primary" id="ref-copy">${icon('copy')} Copiar</button>
+          <a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`🎧 Ouça e baixe qualquer música no ${S.me.brand.name}! Cadastre-se pelo meu link e ganhe ${S.me.referral.new_pct}% de desconto: ${S.me.referral.url}`)}">WhatsApp</a></div></div>
+        <div class="ref-stats"><div><b>${S.me.referral.invited}</b><span>indicados</span></div><div><b>${S.me.referral.paid}</b><span>assinaram</span></div><div><b>${S.me.referral.current_pct}%</b><span>seu desconto</span></div></div>
+      </div>` : ''}
       ${plans.length && !isAdmin() ? `<h2 class="h2">${u.expired ? 'Renove seu plano' : 'Renovar / mudar de plano'}</h2>
         ${S.me.mp_enabled ? '' : '<p class="muted">Pagamento online indisponível no momento — fale com o suporte para renovar.</p>'}
         <div class="plans" id="plans-grid">${plans.map((p) => `<div class="plan${p.highlight ? ' hot' : ''}">${p.highlight ? '<span class="plan-badge">Mais popular</span>' : ''}
-          <h3>${esc(p.name)}</h3><div class="price">${money(p.price)}</div><p class="muted small">${p.days} dias · ${money(p.price / Math.max(1, p.days / 30))}/mês</p>
+          <h3>${esc(p.name)}</h3>${p.discount_pct ? `<div class="was">${money(p.full_price)} <span class="off">-${p.discount_pct}%</span></div>` : ''}<div class="price">${money(p.price)}</div><p class="muted small">${p.days} dias · ${money(p.price / Math.max(1, p.days / 30))}/mês</p>
           <ul><li>${p.dl_per_day ? `${p.dl_per_day} downloads por dia` : 'Downloads ilimitados'}</li><li>${p.max_tracks ? `Até ${p.max_tracks.toLocaleString('pt-BR')} músicas` : 'Biblioteca ilimitada'}</li>
           <li class="${p.allow_video ? '' : 'no'}">Vídeos</li><li class="${p.allow_offline ? '' : 'no'}">Ouvir offline</li><li>Letras, equalizador e mais</li></ul>
           <button class="btn ${p.highlight ? 'primary' : ''}" data-plan="${p.id}" ${S.me.mp_enabled ? '' : 'disabled'}>${u.expired ? 'Renovar' : 'Assinar'}</button></div>`).join('')}</div>` : ''}
@@ -1092,12 +1120,13 @@
       <h2 class="h2">Pagamentos</h2><div id="my-pays"><div class="skeleton"></div></div>`;
     $$('[data-plan]', view).forEach((b) => b.addEventListener('click', () => {
       const p = plans.find((x) => x.id === +b.dataset.plan);
-      openPay({ kind: 'renew', plan_id: p.id, amount: p.price, title: `Plano ${p.name}`, desc: `${p.days} dias${u.expires_at && !u.expired ? ', somados ao tempo que você ainda tem' : ''}.` });
+      openPay({ kind: 'renew', plan_id: p.id, amount: p.price, title: `Plano ${p.name}`, desc: `${p.days} dias${u.expires_at && !u.expired ? ', somados ao tempo que você ainda tem' : ''}.${p.discount_pct ? ` Desconto de ${p.discount_pct}% aplicado 🎁` : ''}` });
     }));
     $$('[data-pkg]', view).forEach((b) => b.addEventListener('click', () => {
       const k = packages[+b.dataset.pkg];
       openPay({ kind: 'credits', package: +b.dataset.pkg, amount: k.price, title: `${k.qty} créditos`, desc: 'Use para criar e renovar clientes.' });
     }));
+    $('#ref-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(S.me.referral.url); } catch { $('#ref-url').select(); document.execCommand('copy'); } toast('Link de indicação copiado! 🎁', 'ok'); });
     $('#invite-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(S.me.invite_url); } catch { $('#invite').select(); document.execCommand('copy'); } toast('Link copiado!', 'ok'); });
     $('#dyn').addEventListener('change', (e) => { store.set('dynColor', e.target.checked); if (P.track) Accent.from(P.track); else applyBrand(S.me.brand); });
     $('#profile').addEventListener('submit', async (e) => {
@@ -1116,6 +1145,105 @@
       if (payment?.status === 'approved') { confetti(); toast('Pagamento aprovado! 🎉', 'ok'); await refreshMe(); history.replaceState(null, '', '#/account'); vAccount(); }
       else if (payment?.status === 'pending') toast('Pagamento em processamento — liberamos assim que o Mercado Pago confirmar.');
     }
+  }
+
+
+  /* ---------- Playlists ---------- */
+  function newPlaylist(trackIds) {
+    modal(`<form class="form"><h3>Nova playlist</h3>
+      <label class="fld"><span>Nome</span><input name="name" required maxlength="80" placeholder="Ex.: Sertanejo pra viagem" autofocus></label>
+      ${trackIds.length ? `<p class="muted small">${trackIds.length} música${trackIds.length > 1 ? 's' : ''} será${trackIds.length > 1 ? 'ão' : ''} adicionada${trackIds.length > 1 ? 's' : ''}.</p>` : ''}
+      <div class="row end"><button type="button" class="btn ghost" data-close>Cancelar</button><button class="btn primary" type="submit">Criar</button></div>
+      <button type="button" class="icon-btn modal-x" data-close>${icon('close')}</button></form>`, {
+      onSubmit: async (d, close) => {
+        const r = await api('playlist_save', { body: { name: d.name, track_ids: trackIds } });
+        close(); await loadPlaylists(); toast(`Playlist “${d.name}” criada${r.added ? ` com ${r.added} música${r.added > 1 ? 's' : ''}` : ''} ✔`, 'ok');
+        if (!trackIds.length) location.hash = `#/playlist/${r.id}`;
+      },
+    });
+  }
+  function pickPlaylist(anchor, ids) {
+    if (!ids.length) return;
+    const list = S.playlists || [];
+    openPop(anchor, `<h4>Adicionar ${ids.length > 1 ? `${ids.length} músicas ` : ''}à playlist</h4>
+      <button class="mi" data-pop="new">${icon('plus')}Nova playlist…</button>
+      ${list.map((p) => `<button class="mi" data-pop="${p.id}">${icon('queue')}${esc(p.name)} <small class="muted">&nbsp;${p.count}</small></button>`).join('')}`, async (v) => {
+      closePop();
+      if (v === 'new') return newPlaylist(ids);
+      try { const r = await api('playlist_add', { body: { id: +v, track_ids: ids } }); toast(r.added ? `✔ ${r.added} adicionada${r.added > 1 ? 's' : ''}` : 'Já estava na playlist', 'ok'); loadPlaylists(); } catch (e) { toast(e.message, 'err'); }
+    });
+  }
+  async function vPlaylist(id) {
+    view.innerHTML = '<div class="skeleton" style="height:240px"></div>';
+    let r;
+    try { r = await api('playlist', { params: { id } }); } catch (e) { view.innerHTML = `<div class="empty"><h3>${esc(e.message)}</h3></div>`; return; }
+    const list = addTracks(r.tracks).map((t) => S.byId.get(t.id));
+    const covers = [...new Set(list.filter((t) => t.cover).map((t) => t.id))].slice(0, 4);
+    const dur = list.reduce((s, t) => s + t.duration, 0);
+    view.innerHTML = `<div class="hero"><div class="art mosaic${covers.length >= 4 ? ' four' : ''}" style="background:${gradient(r.playlist.name)}">
+        ${covers.length ? covers.map((c) => `<img src="${coverUrl({ id: c, cover: true })}" alt="">`).join('') : `<div class="ph">${icon('queue')}</div>`}</div>
+      <div class="meta"><div class="kicker">Playlist</div><h1 class="h1">${esc(r.playlist.name)}</h1><p class="sub">${list.length} músicas · ${fmt(dur)}</p>
+      <div class="row">${list.length ? `<button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>
+        ${Offline.allowed() ? `<button class="btn" data-action="offline-list">${icon('offline')} Offline</button>` : ''}` : ''}
+        <button class="btn ghost" id="pl-rename">${icon('gear')} Renomear</button><button class="btn ghost" id="pl-del">${icon('trash')}</button></div></div></div>
+      ${list.length ? `<p class="muted small">Dica: arraste as músicas para mudar a ordem.</p>${trackList(list)}` : `<div class="empty">${icon('queue')}<h3>Playlist vazia</h3><p>No menu ⋯ de qualquer música, ou no botão <b>Playlist</b> de um artista/gênero, escolha “Adicionar à playlist”.</p><a class="btn primary" href="#/explore">Explorar o acervo</a></div>`}`;
+    $('#pl-rename').onclick = () => modal(`<form class="form"><h3>Renomear playlist</h3><label class="fld"><span>Nome</span><input name="name" required value="${esc(r.playlist.name)}" maxlength="80"></label>
+      <div class="row end"><button class="btn primary" type="submit">Salvar</button></div><button type="button" class="icon-btn modal-x" data-close>${icon('close')}</button></form>`, {
+      onSubmit: async (d, close) => { await api('playlist_save', { body: { id: r.playlist.id, name: d.name } }); close(); loadPlaylists(); route(); },
+    });
+    $('#pl-del').onclick = async () => { if (!confirm(`Excluir a playlist “${r.playlist.name}”? (as músicas continuam no acervo)`)) return; await api('playlist_delete', { body: { id: r.playlist.id } }); loadPlaylists(); location.hash = '#/library'; };
+    // arrastar para reordenar
+    const box = $('.tracks', view); if (!box) return;
+    let dragged = null;
+    $$('.trk', box).forEach((row) => {
+      row.draggable = true;
+      row.addEventListener('dragstart', () => { dragged = row; row.classList.add('dragging'); });
+      row.addEventListener('dragend', async () => {
+        row.classList.remove('dragging'); dragged = null;
+        const order = $$('.trk', box).map((x) => +x.dataset.id);
+        box.dataset.ids = order.join(',');
+        $$('.trk-num span', box).forEach((sp, i) => (sp.textContent = i + 1));
+        await api('playlist_reorder', { body: { id: r.playlist.id, order } }).catch((e) => toast(e.message, 'err'));
+      });
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault(); if (!dragged || dragged === row) return;
+        const after = e.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+        row.parentNode.insertBefore(dragged, after ? row.nextSibling : row);
+      });
+    });
+  }
+
+  /* ---------- Explorar: tudo que já foi baixado no servidor (toca na hora) ---------- */
+  async function vExplore(sub, val) {
+    const params = new URLSearchParams(location.hash.split('?')[1] || '');
+    const q = params.get('q') || '', genre = sub === 'genre' ? val : '';
+    view.innerHTML = `<h1 class="h1">Explorar acervo</h1>
+      <p class="sub">Tudo o que já foi baixado no servidor — por você ou por qualquer pessoa. Toca na hora, sem baixar de novo. Para ouvir sem internet, use <b>Offline</b>.</p>
+      <form class="searchbar" id="ex-form">${icon('search')}<input name="q" value="${esc(q)}" placeholder="Procurar no acervo…" autocomplete="off"><button class="btn primary">Procurar</button></form>
+      <div id="ex-body"><div class="skeleton" style="margin-top:20px;height:200px"></div></div>`;
+    $('#ex-form').addEventListener('submit', (e) => { e.preventDefault(); location.hash = `#/explore?q=${encodeURIComponent(e.target.q.value.trim())}`; });
+    const body = $('#ex-body');
+    try {
+      if (q || genre) {
+        const { tracks } = await api('explore', { params: q ? { q } : { genre } });
+        addTracks(tracks);
+        const list = tracks.map((t) => S.byId.get(t.id));
+        body.innerHTML = `<h2 class="h2">${genre ? esc(genre) : `Resultados para “${esc(q)}”`} <span class="muted small">${list.length} músicas</span></h2>
+          ${list.length ? `<div class="row" style="margin-bottom:12px"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list">${icon('plus')} Playlist</button></div>${trackList(list)}`
+            : `<div class="empty"><h3>Ainda não está no acervo</h3><p>Busque no YouTube e baixe — depois fica disponível para todo mundo.</p><a class="btn primary" href="#/search?q=${encodeURIComponent(q || genre)}&s=youtube">Buscar no YouTube</a></div>`}`;
+        return;
+      }
+      const d = await api('explore');
+      addTracks(d.top); addTracks(d.recent);
+      body.innerHTML = `<div class="stats"><div class="stat"><span>No acervo</span><b>${d.total}</b><span>músicas prontas para ouvir</span></div></div>
+        ${d.recent.length ? `<h2 class="h2">Chegaram agora</h2><div class="hscroll">${d.recent.map((t) => cardTrack(S.byId.get(t.id))).join('')}</div>` : ''}
+        ${d.top.length ? `<h2 class="h2">Em alta no servidor</h2>${trackList(d.top.map((t) => S.byId.get(t.id)))}` : ''}
+        ${d.artists.length ? `<h2 class="h2">Artistas</h2><div class="grid">${d.artists.map((a) => `<a class="card" href="#/explore?q=${encodeURIComponent(a.name)}">
+          <div class="art round">${a.cover ? `<img src="${coverUrl({ id: a.cover, cover: true })}" loading="lazy" alt="">` : `<div class="ph" style="background:${gradient(a.name)}">${esc(a.name[0] || '?')}</div>`}</div>
+          <b>${esc(a.name)}</b><small>${a.count} faixa${a.count > 1 ? 's' : ''}</small></a>`).join('')}</div>` : ''}
+        ${d.genres.length ? `<h2 class="h2">Gêneros</h2><div class="grid">${d.genres.map((g) => `<a class="genre-card" href="#/explore/genre/${encodeURIComponent(g.name)}" style="background:${gradient(g.name)}"><span>${esc(g.name)}</span><small>${g.count} faixas</small></a>`).join('')}</div>` : ''}
+        ${!d.total ? `<div class="empty">${icon('sparkle')}<h3>O acervo está vazio</h3><p>As músicas que qualquer pessoa baixar aparecem aqui para todos.</p><a class="btn primary" href="#/search">Buscar músicas</a></div>` : ''}`;
+    } catch (e) { body.innerHTML = `<div class="empty"><h3>${esc(e.message)}</h3></div>`; }
   }
 
   window.Sonora = { api, $, $$, esc, icon, toast, modal, formToObj, money, dateFmt, fmtSize, gradient, S, route, refreshMe, confetti, openPay, isAdmin, views: {} };
@@ -1138,7 +1266,9 @@
       fav: () => t && toggleFav(t),
       menu: () => t && trackMenu(a, t),
       'play-row': () => { const ids = listIds(); P.playList(ids, Math.max(0, ids.indexOf(t.id))); },
-      'play-one': () => { const id = +a.dataset.id; if (S.byId.has(id)) { P.playNow(id); if (S.byId.get(id).kind === 'video') openNP(); } },
+      'play-one': async () => { const id = +a.dataset.id; await ensureTracks([id]).catch(() => {}); if (S.byId.has(id)) { P.playNow(id); if (S.byId.get(id).kind === 'video') openNP(); } },
+      'new-playlist': () => newPlaylist([]),
+      'playlist-list': () => pickPlaylist(a, listIds()),
       'play-all': () => { const ids = listIds(); if (ids.length) P.playList(ids, 0); },
       'shuffle-all': () => { const ids = listIds(); if (!ids.length) return; if (!P.shuffle) P.toggleShuffle(); P.playList(ids, Math.floor(Math.random() * ids.length)); },
       mix: () => { if (!P.shuffle) P.toggleShuffle(); const ids = S.tracks.filter((x) => x.kind === 'audio').map((x) => x.id); P.playList(ids, Math.floor(Math.random() * ids.length)); },
@@ -1224,7 +1354,7 @@
     try {
       await refreshMe();
       S.status = await api('status');
-      if (!S.me.user.expired) await loadLibrary();
+      if (!S.me.user.expired) { await loadLibrary(); loadPlaylists(); }
     } catch (e) {
       if (document.body.classList.contains('logged-out')) return;
       if (e instanceof TypeError && store.get('lib', []).length) return bootOffline();

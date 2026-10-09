@@ -50,7 +50,7 @@ final class Jobs
 
         $t = Library::findExisting($source, $sid, $kind, $key, $source === 'youtube' ? $sid : '');
         if ($t) {
-            if (Library::canAccess($user, (int) $t['id'])) {
+            if (Account::isAdmin($user) || Library::inLibrary($user, (int) $t['id'])) {
                 return ['status' => 'exists', 'track_id' => (int) $t['id']];
             }
             self::checkLimits($user, $kind, false);

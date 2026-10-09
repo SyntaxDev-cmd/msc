@@ -13,6 +13,16 @@ $logged = $user !== null;
 $csrf = $logged ? Auth::csrf() : '';
 $ref = preg_replace('/[^A-Za-z0-9._-]/', '', (string) ($_GET['r'] ?? ''));
 $brand = $logged ? Account::brand($user) + ['signup' => false, 'ref' => ''] : Account::publicBrand($ref);
+// link de indicação: ?i=usuario (abre o cadastro com desconto, na marca de quem indicou)
+$inviter = null;
+if (!$logged && !empty($_GET['i']) && Referral::enabled()) {
+    $inviter = Account::byUsername(preg_replace('/[^A-Za-z0-9._-]/', '', (string) $_GET['i']));
+    if ($inviter && $inviter['status'] === 'active') {
+        $brand = Account::brand($inviter) + ['signup' => true, 'ref' => '', 'trial_days' => (int) Settings::get('trial_days')];
+    } else {
+        $inviter = null;
+    }
+}
 $h = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 $app = $h($brand['name']);
 $logo = $brand['logo'] !== '' ? $h($brand['logo']) : 'assets/icon.svg';
@@ -84,7 +94,7 @@ $v = APP_VERSION;
 </svg>
 
 <div id="login" class="login">
-  <form id="login-form" class="login-card">
+  <form id="login-form" class="login-card"<?= $inviter ? ' hidden' : '' ?>>
     <img src="<?= $logo ?>" class="brand-logo" width="64" height="64" alt="">
     <h1><?= $app ?></h1>
     <p class="muted"><?= $h($brand['tagline']) ?></p>
@@ -98,11 +108,15 @@ $v = APP_VERSION;
     <?php if ($brand['support_url']): ?><a class="muted small" href="<?= $h($brand['support_url']) ?>" target="_blank" rel="noopener">Precisa de ajuda? Fale com o suporte</a><?php endif; ?>
   </form>
   <?php if ($brand['signup']): ?>
-  <form id="signup-form" class="login-card" hidden>
+  <form id="signup-form" class="login-card"<?= $inviter ? '' : ' hidden' ?>>
     <img src="<?= $logo ?>" class="brand-logo" width="64" height="64" alt="">
     <h1>Criar conta</h1>
     <p class="muted">Teste grátis por <?= (int) $brand['trial_days'] ?> dia<?= $brand['trial_days'] > 1 ? 's' : '' ?>, sem cartão.</p>
     <input type="hidden" name="ref" value="<?= $h($brand['ref']) ?>">
+    <?php if ($inviter): ?>
+      <input type="hidden" name="invite" value="<?= $h($inviter['username']) ?>">
+      <div class="invite-badge">🎁 <b><?= $h($inviter['name'] ?: $inviter['username']) ?></b> te indicou: ganhe <b><?= (int) Settings::get('referral_new_pct') ?>% de desconto</b> na primeira assinatura!</div>
+    <?php endif; ?>
     <input type="text" name="name" placeholder="Seu nome" required maxlength="80">
     <input type="text" name="username" placeholder="Escolha um usuário" required pattern="[A-Za-z0-9._\-]{3,32}" autocapitalize="none" title="3 a 32 letras, números, ponto, _ ou -">
     <input type="password" name="password" placeholder="Senha (mín. 6)" required minlength="6" autocomplete="new-password">
@@ -121,6 +135,7 @@ $v = APP_VERSION;
     <nav class="nav">
       <a href="#/home" data-nav="home"><svg><use href="#i-home"/></svg><span>Início</span></a>
       <a href="#/search" data-nav="search"><svg><use href="#i-search"/></svg><span>Buscar</span></a>
+      <a href="#/explore" data-nav="explore"><svg><use href="#i-sparkle"/></svg><span>Explorar acervo</span></a>
       <a href="#/library" data-nav="library"><svg><use href="#i-library"/></svg><span>Biblioteca</span></a>
       <a href="#/favorites" data-nav="favorites"><svg><use href="#i-heart"/></svg><span>Favoritas</span></a>
       <a href="#/downloads" data-nav="downloads"><svg><use href="#i-download"/></svg><span>Downloads</span><b class="badge" id="dl-badge" hidden>0</b></a>
@@ -138,6 +153,8 @@ $v = APP_VERSION;
         <a href="#/admin/logs" data-nav="admin/logs"><svg><use href="#i-list"/></svg><span>Atividades</span></a>
       </nav>
     </div>
+    <div class="side-title row" style="justify-content:space-between;margin-right:4px">Playlists <button class="icon-btn" data-action="new-playlist" title="Nova playlist" style="width:28px;height:28px"><svg style="width:16px;height:16px"><use href="#i-plus"/></svg></button></div>
+    <div class="side-genres" id="side-playlists"></div>
     <div class="side-title">Gêneros</div>
     <div class="side-genres" id="side-genres"></div>
     <div class="side-foot">

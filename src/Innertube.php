@@ -17,6 +17,7 @@ final class Innertube
     private const P_VIDEOS = 'EgIQAQ==';                       // filtro: só vídeos
     private const P_CHANNELS = 'EgIQAg==';                     // filtro: só canais
     private const P_MUSIC_SONGS = 'EgWKAQIIAWoKEAkQBRAKEAMQBA=='; // YouTube Music: só músicas
+    private const P_MUSIC_ARTISTS = 'EgWKAQIgAWoKEAkQBRAKEAMQBA=='; // YouTube Music: só artistas
 
     private static function clientVersion(bool $music): string
     {
@@ -35,6 +36,51 @@ final class Innertube
     }
 
     public static function call(string $endpoint, array $body, bool $music = false, string $extraQs = ''): array
+    {
+        return self::callMany([[$endpoint, $body, $extraQs]], $music)[0];
+    }
+
+    /** Várias chamadas em paralelo (curl_multi) — usado para abrir todos os álbuns de uma vez */
+    /** Só para testes automatizados: fn(endpoint, body, music) => resposta */
+    public static ?Closure $fake = null;
+
+    public static function callMany(array $calls, bool $music = false, int $concurrency = 8): array
+    {
+        if (self::$fake) {
+            return array_values(array_map(fn($c) => (self::$fake)($c[0], $c[1], $music), $calls));
+        }
+        $results = [];
+        foreach (array_chunk($calls, $concurrency, true) as $chunk) {
+            $mh = curl_multi_init();
+            $handles = [];
+            foreach ($chunk as $i => [$endpoint, $body, $extraQs]) {
+                $handles[$i] = self::handle($endpoint, $body, $music, $extraQs ?? '');
+                curl_multi_add_handle($mh, $handles[$i]);
+            }
+            do {
+                $st = curl_multi_exec($mh, $running);
+                if ($running) {
+                    curl_multi_select($mh, 1.0);
+                }
+            } while ($running && $st === CURLM_OK);
+            foreach ($handles as $i => $ch) {
+                $raw = curl_multi_getcontent($ch);
+                $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                $err = curl_error($ch);
+                curl_multi_remove_handle($mh, $ch);
+                $data = json_decode((string) $raw, true);
+                if (count($calls) === 1 && ($code >= 400 || !is_array($data))) {
+                    throw new RuntimeException($raw === '' || $raw === null ? 'Sem conexão com o YouTube: ' . $err : "YouTube respondeu HTTP {$code}");
+                }
+                $results[$i] = is_array($data) && $code < 400 ? $data : [];
+            }
+            curl_multi_close($mh);
+        }
+        ksort($results);
+        return array_values($results);
+    }
+
+    private static function handle(string $endpoint, array $body, bool $music, string $extraQs)
     {
         $host = $music ? 'https://music.youtube.com' : 'https://www.youtube.com';
         $ver = self::clientVersion($music);
@@ -56,17 +102,7 @@ final class Innertube
                 'Accept-Language: pt-BR,pt;q=0.9', 'Cookie: CONSENT=YES+1; SOCS=CAI',
             ],
         ]);
-        $raw = curl_exec($ch);
-        $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        $err = curl_error($ch);
-        if ($raw === false) {
-            throw new RuntimeException('Sem conexão com o YouTube: ' . $err);
-        }
-        $data = json_decode((string) $raw, true);
-        if ($code >= 400 || !is_array($data)) {
-            throw new RuntimeException("YouTube respondeu HTTP {$code}");
-        }
-        return $data;
+        return $ch;
     }
 
     /* ---------------- utilitários de parsing ---------------- */
@@ -183,7 +219,7 @@ final class Innertube
             $items = [];
             $seen = [];
             $data = self::call('search', ['query' => $q, 'params' => self::P_VIDEOS]);
-            for ($page = 0; $page < 5; $page++) {
+            for ($page = 0; $page < 8; $page++) {
                 foreach (self::videos($data) as $v) {
                     if (isset($seen[$v['id']]) || $v['duration'] <= 0) {
                         continue; // ao vivo / sem duração
@@ -326,12 +362,126 @@ final class Innertube
         return ['id' => $id, 'title' => $title, 'artists' => $artists, 'album' => $album, 'duration' => $duration, 'thumb' => $thumb];
     }
 
+    private static function musicContinue(array $data, string $endpoint, int $maxPages, callable $each): void
+    {
+        for ($page = 0; $page < $maxPages; $page++) {
+            foreach (self::collect($data, ['musicResponsiveListItemRenderer']) as [, $r]) {
+                $each($r);
+            }
+            $tok = self::continuation($data);
+            if (!$tok) {
+                break;
+            }
+            $qs = '&ctoken=' . rawurlencode($tok) . '&continuation=' . rawurlencode($tok) . '&type=next';
+            $data = self::call($endpoint, ['continuation' => $tok], true, $qs);
+        }
+    }
+
+    /** Encontra o artista no YouTube Music (canal oficial com toda a discografia) */
+    public static function musicArtist(string $name): ?array
+    {
+        $data = self::call('search', ['query' => $name, 'params' => self::P_MUSIC_ARTISTS], true);
+        $best = null;
+        $bestScore = 0.0;
+        foreach (self::collect($data, ['musicResponsiveListItemRenderer']) as $i => [, $r]) {
+            $id = (string) ($r['navigationEndpoint']['browseEndpoint']['browseId'] ?? '');
+            if (!str_starts_with($id, 'UC')) {
+                continue;
+            }
+            $title = self::text($r['flexColumns'][0]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []);
+            $score = Text::similarity($title, $name) - $i; // empate: o primeiro resultado (mais relevante)
+            if ($score > $bestScore && Text::similarity($title, $name) >= 80) {
+                $bestScore = $score;
+                $best = [
+                    'id' => $id, 'name' => $title,
+                    'thumb' => preg_replace('/=w\d+-h\d+/', '=w544-h544', self::bestThumb($r['thumbnail']['musicThumbnailRenderer']['thumbnail'] ?? [])),
+                    'subscribers' => trim((string) (explode('•', self::text($r['flexColumns'][1]['musicResponsiveListItemFlexColumnRenderer']['text'] ?? []))[1] ?? '')),
+                ];
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * Discografia completa no YouTube Music: lista "todas as músicas" do artista +
+     * as faixas de TODOS os álbuns, singles e EPs (abertos em paralelo).
+     * @return array lista no formato de parseMusicItem (+ album)
+     */
+    public static function musicDiscography(array $artist, int $maxAlbums = 80): array
+    {
+        $page = self::call('browse', ['browseId' => $artist['id']], true);
+        $tracks = [];
+        $add = function (?array $t, string $album = '', string $thumb = '') use (&$tracks, $artist) {
+            if (!$t || isset($tracks[$t['id']])) {
+                return;
+            }
+            $t['artists'] = $t['artists'] ?: [$artist['name']];
+            $t['album'] = $t['album'] ?: $album;
+            $t['thumb'] = $t['thumb'] ?: $thumb;
+            $tracks[$t['id']] = $t;
+        };
+
+        // 1) "Músicas" › Ver tudo (playlist com todas as músicas do artista)
+        $songsId = null;
+        foreach (self::collect($page, ['musicShelfRenderer']) as [, $shelf]) {
+            foreach (self::collect(['t' => $shelf['title'] ?? [], 'b' => $shelf['bottomEndpoint'] ?? []], ['browseEndpoint']) as [, $be]) {
+                if (str_starts_with((string) ($be['browseId'] ?? ''), 'VL')) {
+                    $songsId = (string) $be['browseId'];
+                    break 2;
+                }
+            }
+            foreach (self::collect($shelf, ['musicResponsiveListItemRenderer']) as [, $r]) {
+                $add(self::parseMusicItem($r));
+            }
+        }
+        if ($songsId) {
+            try {
+                self::musicContinue(self::call('browse', ['browseId' => $songsId], true), 'browse', 15, fn($r) => $add(self::parseMusicItem($r)));
+            } catch (Throwable $e) {
+            }
+        }
+
+        // 2) Álbuns, singles e EPs (com "ver tudo" quando existir)
+        $albums = [];
+        foreach (self::collect($page, ['musicCarouselShelfRenderer']) as [, $car]) {
+            $title = mb_strtolower(self::text($car['header']['musicCarouselShelfBasicHeaderRenderer']['title'] ?? []));
+            if (!preg_match('/álbu|albu|single|ep\b|lançamento|release/u', $title)) {
+                continue;
+            }
+            $items = self::collect($car, ['musicTwoRowItemRenderer']);
+            foreach (self::collect($car['header'] ?? [], ['browseEndpoint']) as [, $more]) {
+                if (!empty($more['params'])) {
+                    try {
+                        $items = array_merge($items, self::collect(self::call('browse', ['browseId' => $more['browseId'], 'params' => $more['params']], true), ['musicTwoRowItemRenderer']));
+                    } catch (Throwable $e) {
+                    }
+                    break;
+                }
+            }
+            foreach ($items as [, $it]) {
+                $bid = (string) ($it['navigationEndpoint']['browseEndpoint']['browseId'] ?? '');
+                if (str_starts_with($bid, 'MPREb')) {
+                    $albums[$bid] = [self::text($it['title'] ?? []), self::bestThumb($it['thumbnailRenderer']['musicThumbnailRenderer']['thumbnail'] ?? [])];
+                }
+            }
+        }
+        $albums = array_slice($albums, 0, $maxAlbums, true);
+        $pages = self::callMany(array_map(fn($bid) => ['browse', ['browseId' => $bid], ''], array_keys($albums)), true);
+        foreach (array_values($albums) as $i => [$albumTitle, $thumb]) {
+            $thumb = preg_replace('/=w\d+-h\d+/', '=w544-h544', $thumb) ?? $thumb;
+            foreach (self::collect($pages[$i] ?? [], ['musicResponsiveListItemRenderer']) as [, $r]) {
+                $add(self::parseMusicItem($r), $albumTitle, $thumb);
+            }
+        }
+        return array_values($tracks);
+    }
+
     /**
      * Catálogo completo de um artista no YouTube:
      *  1) todas as músicas dele no YouTube Music (áudio oficial)
      *  2) + os vídeos do canal oficial (clipes, ao vivo, parcerias) que ainda não apareceram
      */
-    public static function artistCatalog(string $name, int $max = 300): array
+    public static function artistCatalog(string $name, int $max = 800): array
     {
         return Cache::remember('ita:' . md5(mb_strtolower($name) . $max), 3600 * 12, function () use ($name, $max) {
             $errors = [];
@@ -345,6 +495,24 @@ final class Innertube
                 $keys['id:' . $item['source_id']] = $keys[$k] = true;
                 $items[] = $item;
             };
+
+            $musicArtist = null;
+            try {
+                $musicArtist = self::musicArtist($name);
+                if ($musicArtist) {
+                    foreach (self::musicDiscography($musicArtist) as $s) {
+                        $artist = implode(', ', $s['artists']);
+                        $add([
+                            'source' => 'youtube', 'source_id' => $s['id'], 'title' => $s['title'], 'artist' => $artist,
+                            'raw_title' => $artist . ' - ' . $s['title'], 'channel' => 'YouTube Music', 'album' => $s['album'],
+                            'genre' => '', 'duration' => $s['duration'], 'views' => 0,
+                            'thumb' => $s['thumb'] ?: "https://i.ytimg.com/vi/{$s['id']}/hqdefault.jpg", 'kinds' => ['audio', 'video'],
+                        ]);
+                    }
+                }
+            } catch (Throwable $e) {
+                $errors[] = 'Discografia: ' . $e->getMessage();
+            }
 
             try {
                 foreach (self::musicSongs($name, 250) as $s) {
@@ -381,7 +549,7 @@ final class Innertube
                     }
                 }
                 if ($channel) {
-                    foreach (self::channelUploads($channel['id'], 250) as $v) {
+                    foreach (self::channelUploads($channel['id'], 500) as $v) {
                         if ($v['duration'] && ($v['duration'] < 60 || $v['duration'] > 1500)) {
                             continue; // shorts e lives longas
                         }
@@ -395,9 +563,12 @@ final class Innertube
             if (!$items && $errors) {
                 throw new RuntimeException(implode(' | ', $errors));
             }
+            $info = $musicArtist ?: ($channel ? ['name' => $channel['title'], 'thumb' => $channel['thumb'], 'subscribers' => $channel['subscribers']] : null);
             return [
-                'artist' => $channel ? ['name' => $channel['title'], 'thumb' => $channel['thumb'], 'subscribers' => $channel['subscribers'], 'channel_id' => $channel['id']]
-                    : ['name' => $name, 'thumb' => $items[0]['thumb'] ?? '', 'subscribers' => '', 'channel_id' => ''],
+                'artist' => [
+                    'name' => $info['name'] ?? $name, 'thumb' => $info['thumb'] ?? ($items[0]['thumb'] ?? ''),
+                    'subscribers' => $info['subscribers'] ?? '', 'channel_id' => $channel['id'] ?? '',
+                ],
                 'items' => array_slice($items, 0, $max),
             ];
         });

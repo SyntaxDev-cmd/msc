@@ -209,6 +209,37 @@ SQL);
                 @rename($old, $old . '.migrated');
             }
             $pdo->exec('PRAGMA user_version = 1');
+            $v = 1;
+        }
+        if ($v < 2) {
+            // v2: playlists + "indique e ganhe"
+            $pdo->exec(<<<SQL
+CREATE TABLE IF NOT EXISTS playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pl_user ON playlists(user_id);
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id INTEGER NOT NULL,
+    track_id INTEGER NOT NULL,
+    pos INTEGER NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (playlist_id, track_id)
+);
+SQL);
+            $cols = array_column($pdo->query('PRAGMA table_info(accounts)')->fetchAll(), 'name');
+            if (!in_array('referred_by', $cols, true)) {
+                $pdo->exec('ALTER TABLE accounts ADD COLUMN referred_by INTEGER');
+                $pdo->exec('ALTER TABLE accounts ADD COLUMN discount_pct INTEGER NOT NULL DEFAULT 0');
+            }
+            $cols = array_column($pdo->query('PRAGMA table_info(payments)')->fetchAll(), 'name');
+            if (!in_array('discount_pct', $cols, true)) {
+                $pdo->exec('ALTER TABLE payments ADD COLUMN discount_pct INTEGER NOT NULL DEFAULT 0');
+            }
+            $pdo->exec('PRAGMA user_version = 2');
         }
     }
 

@@ -56,9 +56,11 @@ final class Payments
     public static function plansFor(array $acc): array
     {
         $out = [];
+        $disc = Referral::discountFor($acc);
         foreach (Plans::all(true) as $p) {
             [$recv] = self::receiverFor($acc, $p);
-            $out[] = Plans::publicRow($p, self::priceFor($recv, $p));
+            $full = self::priceFor($recv, $p);
+            $out[] = Plans::publicRow($p, round($full * (100 - $disc) / 100, 2)) + ['full_price' => $full, 'discount_pct' => $disc];
         }
         return $out;
     }
@@ -99,8 +101,20 @@ final class Payments
                 throw new InvalidArgumentException('Plano inválido');
             }
             [$receiver, $token] = self::receiverFor($acc, $plan);
-            $amount = self::priceFor($receiver, $plan);
+            $discount = Referral::discountFor($acc);
+            $amount = round(self::priceFor($receiver, $plan) * (100 - $discount) / 100, 2);
             $qty = 0;
+            if ($discount >= 100 || $amount <= 0) {
+                // 100% de desconto (indicações): renova na hora, sem Mercado Pago
+                $now = time();
+                $id = Db::insert('payments', ['account_id' => $acc['id'], 'receiver_id' => 0, 'kind' => 'renew', 'plan_id' => $plan['id'],
+                    'qty' => 0, 'amount' => 0, 'method' => 'desconto', 'status' => 'pending', 'discount_pct' => $discount, 'created_at' => $now, 'updated_at' => $now]);
+                Db::tx(function () use ($id) {
+                    Db::exec("UPDATE payments SET status = 'approved', approved_at = ? WHERE id = ?", [time(), $id]);
+                    self::apply(Db::one('SELECT * FROM payments WHERE id = ?', [$id]));
+                });
+                return self::publicRow(Db::one('SELECT * FROM payments WHERE id = ?', [$id]));
+            }
             $planId = (int) $plan['id'];
             $title = 'Plano ' . $plan['name'] . ' — ' . Account::brand($acc)['name'];
         }
@@ -108,14 +122,15 @@ final class Payments
             throw new DomainException('Pagamento online ainda não configurado. Fale com o suporte.');
         }
         if ($amount < 1) {
-            throw new DomainException('Valor inválido para cobrança');
+            throw new DomainException('Valor inválido para cobrança (mínimo R$ 1,00)');
         }
+        $discount = $discount ?? 0;
         Throttle::hit($tkey);
 
         $now = time();
         $id = Db::insert('payments', [
             'account_id' => $acc['id'], 'receiver_id' => $receiver ? (int) $receiver['id'] : 0, 'kind' => $kind,
-            'plan_id' => $planId, 'qty' => $qty, 'amount' => $amount, 'method' => $method,
+            'plan_id' => $planId, 'qty' => $qty, 'amount' => $amount, 'method' => $method, 'discount_pct' => $discount,
             'status' => 'pending', 'created_at' => $now, 'updated_at' => $now,
         ]);
         $ref = 'SN-' . $id;
@@ -206,6 +221,7 @@ final class Payments
             return;
         }
         Account::extendWithPlan((int) $acc['id'], $plan);
+        Referral::onPaid($acc, $pay);
         if ((int) $pay['receiver_id'] > 0 && (int) $plan['credits'] > 0) {
             // a revenda recebeu o dinheiro: consome os créditos dela (pode ficar negativo; aparece no painel)
             Db::exec('UPDATE accounts SET credits = credits - ? WHERE id = ?', [$plan['credits'], $pay['receiver_id']]);
@@ -264,7 +280,7 @@ final class Payments
         return [
             'id' => (int) $p['id'], 'account_id' => (int) $p['account_id'], 'receiver_id' => (int) $p['receiver_id'],
             'kind' => $p['kind'], 'plan_id' => (int) $p['plan_id'], 'qty' => (int) $p['qty'], 'amount' => (float) $p['amount'],
-            'method' => $p['method'], 'status' => $p['status'], 'mp_status' => $p['mp_status'],
+            'method' => $p['method'], 'status' => $p['status'], 'mp_status' => $p['mp_status'], 'discount_pct' => (int) ($p['discount_pct'] ?? 0),
             'qr_code' => $p['status'] === 'pending' ? $p['qr_code'] : '', 'qr_base64' => $p['status'] === 'pending' ? $p['qr_base64'] : '',
             'init_point' => $p['status'] === 'pending' ? $p['init_point'] : '', 'note' => $p['note'],
             'created_at' => (int) $p['created_at'], 'approved_at' => (int) $p['approved_at'],

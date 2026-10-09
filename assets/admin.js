@@ -366,6 +366,11 @@
         <label class="fld"><span>Testes grátis por revenda por dia</span><input type="number" min="0" name="trials_per_day" value="${esc(g.trials_per_day)}"></label>
         <label class="fld"><span>Limites do teste grátis iguais ao plano</span><select name="default_plan_id">${ps.map((p) => `<option value="${p.id}" ${String(p.id) === g.default_plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
         <label class="fld"><span>URL pública do site (opcional)</span><input name="public_url" value="${esc(g.public_url)}" placeholder="https://musica.seusite.com"></label></div>
+        <h4>🎁 Indique e ganhe</h4>
+        <label class="switch"><input type="checkbox" name="referral_enabled" ${g.referral_enabled === '1' ? 'checked' : ''}><i></i> Ativar programa de indicação (cada cliente ganha um link pessoal)</label>
+        <div class="grid2"><label class="fld"><span>Desconto do indicado na 1ª assinatura (%)</span><input type="number" min="0" max="100" name="referral_new_pct" value="${esc(g.referral_new_pct)}"></label>
+        <label class="fld"><span>Desconto para quem indicou, por indicado que assinar (%)</span><input type="number" min="0" max="100" name="referral_reward_pct" value="${esc(g.referral_reward_pct)}"></label>
+        <label class="fld"><span>Desconto máximo acumulado (%) — 100 = pode ganhar mês grátis</span><input type="number" min="0" max="100" name="referral_max_pct" value="${esc(g.referral_max_pct)}"></label></div>
         <div class="row end"><button class="btn primary">Salvar</button></div></form>
       <form class="card-form" id="f-dl"><h3>⬇️ Download do YouTube</h3>
         <p class="muted small">O YouTube costuma bloquear IPs de hospedagem ("confirme que não é um robô"). Quando isso acontece, o sistema baixa automaticamente por servidores alternativos open source (Invidious, Piped, Cobalt). Use <a href="install.php">Testar YouTube</a> para ver o que está funcionando no seu servidor.</p>
@@ -404,7 +409,7 @@
     onSubmit('#f-brand', (o) => { o.support_url = o.brand_support_url; delete o.brand_support_url; return save({ global: o }, 'Marca atualizada 🎨'); });
     onSubmit('#f-mp', (o) => save({ global: { ...o, reseller_mp: o.reseller_mp ? '1' : '0' } }));
     onSubmit('#f-dl', (o) => save({ global: { ...o, mirrors_enabled: o.mirrors_enabled ? '1' : '0' } }));
-    onSubmit('#f-rules', (o) => save({ global: { ...o, signup_enabled: o.signup_enabled ? '1' : '0' } }));
+    onSubmit('#f-rules', (o) => save({ global: { ...o, signup_enabled: o.signup_enabled ? '1' : '0', referral_enabled: o.referral_enabled ? '1' : '0' } }));
     onSubmit('#f-mybrand', (o) => save({ mine: { brand: { name: o.b_name, tagline: o.b_tagline, color: o.b_color, color2: o.b_color2, support_url: o.b_support_url } } }, 'Marca atualizada 🎨'));
     onSubmit('#f-mymp', (o) => {
       const prices = {}; Object.keys(o).filter((k) => k.startsWith('price_')).forEach((k) => (prices[k.slice(6)] = o[k]));
@@ -431,7 +436,7 @@
   const ACT = {
     'account.create': ['➕', 'criou'], 'account.update': ['✏️', 'editou'], 'account.renew': ['🔄', 'renovou'], 'account.delete': ['🗑️', 'excluiu'],
     'account.impersonate': ['👤', 'entrou como'], 'credits.transfer': ['💰', 'créditos'], 'payment.create': ['🧾', 'gerou cobrança'],
-    'payment.approved': ['✅', 'pagamento aprovado'], 'settings.save': ['⚙️', 'alterou configurações'], 'settings.mine': ['🎨', 'alterou a própria marca'], 'track.delete': ['🎵', 'excluiu faixa'],
+    'payment.approved': ['✅', 'pagamento aprovado'], 'referral.signup': ['🎁', 'indicou'], 'referral.reward': ['🏆', 'ganhou desconto por indicação'], 'settings.save': ['⚙️', 'alterou configurações'], 'settings.mine': ['🎨', 'alterou a própria marca'], 'track.delete': ['🎵', 'excluiu faixa'],
   };
   async function vLogs() {
     const { logs } = await api('logs');

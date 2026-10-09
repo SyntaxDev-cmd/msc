@@ -43,12 +43,17 @@ final class Library
         return $row;
     }
 
-    /** Usuário pode ouvir esta faixa? (admin ouve o acervo inteiro) */
+    /**
+     * Acervo compartilhado: o que qualquer usuário baixou fica disponível para todos ouvirem
+     * na hora (sem baixar de novo). O controle de acesso é a conta estar ativa e em dia.
+     */
     public static function canAccess(array $user, int $trackId): bool
     {
-        if (Account::isAdmin($user)) {
-            return true;
-        }
+        return $user['status'] === 'active' && !Account::expired($user) && (bool) Db::one('SELECT 1 FROM tracks WHERE id = ?', [$trackId]);
+    }
+
+    public static function inLibrary(array $user, int $trackId): bool
+    {
         return (bool) Db::one('SELECT 1 FROM user_tracks WHERE user_id = ? AND track_id = ?', [$user['id'], $trackId]);
     }
 
@@ -77,8 +82,8 @@ final class Library
             $it['job'] = [];
             foreach (['audio', 'video'] as $kind) {
                 $t = self::findExisting($it['source'], $it['source_id'], $kind, $key, $yt);
-                $mine = $t && ($admin || self::canAccess($user, (int) $t['id']));
-                $it['library'][$kind] = $mine ? (int) $t['id'] : null;
+                // já está no servidor = todo mundo ouve na hora
+                $it['library'][$kind] = $t ? (int) $t['id'] : null;
                 $it['server'][$kind] = $t ? (int) $t['id'] : null;
                 $it['job'][$kind] = null;
                 if (!$t) {
@@ -135,12 +140,19 @@ final class Library
         return array_map([self::class, 'publicRow'], $rows);
     }
 
+    /** Faixas do acervo com os dados pessoais do usuário (favorita, plays) */
+    public static function rows(array $user, string $join, string $where, array $args, string $order, int $limit): array
+    {
+        $rows = Db::all('SELECT t.*, ut.favorite u_favorite, ut.plays u_plays, ut.last_played u_last_played, COALESCE(ut.added_at, t.created_at) added_at
+            FROM tracks t ' . $join . ' LEFT JOIN user_tracks ut ON ut.track_id = t.id AND ut.user_id = ?'
+            . ($where !== '' ? ' WHERE ' . $where : '') . ' ORDER BY ' . $order . ' LIMIT ' . (int) $limit, array_merge([$user['id']], $args));
+        return array_map([self::class, 'publicRow'], $rows);
+    }
+
     public static function touch(array $user, int $trackId, array $fields): void
     {
-        // admin pode ter favoritas/plays em faixas que não "adicionou": cria a linha sob demanda
-        if (Account::isAdmin($user)) {
-            self::link((int) $user['id'], $trackId);
-        }
+        // ouviu ou favoritou uma música do acervo: ela entra na biblioteca do usuário
+        self::link((int) $user['id'], $trackId);
         if (isset($fields['favorite'])) {
             Db::exec('UPDATE user_tracks SET favorite = ? WHERE user_id = ? AND track_id = ?', [(int) $fields['favorite'], $user['id'], $trackId]);
         }

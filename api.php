@@ -42,6 +42,7 @@ function me_payload(array $u): array
         'invite_url' => $panel && Settings::get('signup_enabled') === '1' && ($settings['signup'] ?? true)
             ? Settings::baseUrl() . (Account::isAdmin($u) ? '' : '?r=' . rawurlencode($u['username'])) : null,
         'roles' => Account::ROLES,
+        'referral' => Referral::stats($u),
         'csrf' => Auth::csrf(),
     ];
 }
@@ -80,16 +81,28 @@ try {
 
         case 'signup':
             $b = Account::publicBrand((string) ($input['ref'] ?? ''));
-            need($b['signup'], 'Cadastro desativado');
+            $referrer = !empty($input['invite']) && Referral::enabled() ? Account::byUsername((string) $input['invite']) : null;
+            if ($referrer && $referrer['status'] !== 'active') {
+                $referrer = null;
+            }
+            need($b['signup'] || $referrer, 'Cadastro desativado');
             $ipKey = 'signup:' . client_ip();
             need(Throttle::count($ipKey, 86400) < 3, 'Limite de cadastros atingido para esta rede. Tente amanhã.');
             $parent = $b['ref'] !== '' ? Account::byUsername($b['ref']) : Db::one("SELECT * FROM accounts WHERE role = 'admin' ORDER BY id LIMIT 1");
+            if ($referrer) {
+                // o indicado fica com a mesma revenda de quem indicou (ou com a própria revenda que indicou)
+                $parent = $referrer['role'] === 'user' ? (Account::find((int) $referrer['parent_id']) ?? $parent) : $referrer;
+            }
             $id = Account::create($parent, [
                 'role' => 'user', 'trial' => 1, 'username' => $input['username'] ?? '', 'password' => $input['password'] ?? '',
                 'name' => $input['name'] ?? '', 'email' => $input['email'] ?? '', 'phone' => $input['phone'] ?? '',
                 'notes' => 'Cadastro pelo site',
             ]);
             Throttle::hit($ipKey);
+            if ($referrer) {
+                Db::exec('UPDATE accounts SET referred_by = ? WHERE id = ?', [$referrer['id'], $id]);
+                Audit::log((int) $referrer['id'], 'referral.signup', $id, 'Novo indicado: ' . ($input['username'] ?? ''));
+            }
             Auth::loginAs($id);
             json_out(['ok' => true, 'csrf' => Auth::csrf()]);
             return;
@@ -173,13 +186,14 @@ try {
                 return;
             }
             $q = mb_substr($q, 0, 120);
-            $limit = max(1, min(50, (int) ($_GET['limit'] ?? cfg('max_results', 25))));
+            $limit = max(1, min(100, (int) ($_GET['limit'] ?? cfg('max_results', 25))));
             session_write_close();
+            @set_time_limit(240);
             $fallback = false;
             $artistInfo = null;
             if ($src === 'artist') {
                 try {
-                    $cat = Innertube::artistCatalog($q, 300);
+                    $cat = Innertube::artistCatalog($q, 800);
                     $items = $cat['items'];
                     $artistInfo = $cat['artist'] + ['count' => count($items)];
                 } catch (Throwable $e) {
@@ -307,6 +321,67 @@ try {
                 $t['lyrics_plain'] = $l['plain'];
             }
             json_out(['synced' => $t['lyrics_synced'], 'plain' => $t['lyrics_plain']]);
+            return;
+
+        /* ===== Acervo compartilhado ===== */
+        case 'tracks':
+            $ids = array_slice(array_filter(array_map('intval', explode(',', (string) ($_GET['ids'] ?? '')))), 0, 500);
+            json_out(['tracks' => $ids ? Library::rows($user, '', 't.id IN (' . implode(',', $ids) . ')', [], 't.id', 500) : []]);
+            return;
+
+        case 'explore':
+            $q = trim((string) ($_GET['q'] ?? ''));
+            $genre = trim((string) ($_GET['genre'] ?? ''));
+            if ($q !== '' || $genre !== '') {
+                $like = '%' . $q . '%';
+                $tracks = $genre !== ''
+                    ? Library::rows($user, '', 't.genre = ?', [$genre], 't.plays DESC, t.created_at DESC', 1000)
+                    : Library::rows($user, '', '(t.title LIKE ? OR t.artist LIKE ? OR t.album LIKE ?)', [$like, $like, $like], 't.plays DESC', 400);
+                json_out(['tracks' => $tracks]);
+                return;
+            }
+            json_out([
+                'top' => Library::rows($user, '', 't.plays > 0', [], 't.plays DESC', 30),
+                'recent' => Library::rows($user, '', '', [], 't.created_at DESC', 30),
+                'genres' => array_map(fn($r) => ['name' => $r['genre'], 'count' => (int) $r['c']], Db::all('SELECT genre, COUNT(*) c FROM tracks GROUP BY genre ORDER BY c DESC LIMIT 40')),
+                'artists' => array_map(fn($r) => ['name' => $r['artist'], 'count' => (int) $r['c'], 'cover' => (int) $r['cover']],
+                    Db::all("SELECT artist, COUNT(*) c, MAX(CASE WHEN cover_path <> '' THEN id END) cover FROM tracks GROUP BY artist ORDER BY SUM(plays) DESC, c DESC LIMIT 24")),
+                'total' => (int) (Db::one('SELECT COUNT(*) c FROM tracks')['c'] ?? 0),
+            ]);
+            return;
+
+        case 'playlists':
+            json_out(['playlists' => Playlists::list($user)]);
+            return;
+
+        case 'playlist':
+            $p = Playlists::owned($user, (int) ($_GET['id'] ?? 0));
+            json_out(['playlist' => ['id' => (int) $p['id'], 'name' => $p['name']], 'tracks' => Playlists::tracks($user, (int) $p['id'])]);
+            return;
+
+        case 'playlist_save':
+            $id = Playlists::save($user, (int) ($input['id'] ?? 0), (string) ($input['name'] ?? ''));
+            $added = !empty($input['track_ids']) ? Playlists::add($user, $id, (array) $input['track_ids']) : 0;
+            json_out(['ok' => true, 'id' => $id, 'added' => $added]);
+            return;
+
+        case 'playlist_add':
+            json_out(['ok' => true, 'added' => Playlists::add($user, (int) ($input['id'] ?? 0), (array) ($input['track_ids'] ?? []))]);
+            return;
+
+        case 'playlist_remove':
+            Playlists::remove($user, (int) ($input['id'] ?? 0), (int) ($input['track_id'] ?? 0));
+            json_out(['ok' => true]);
+            return;
+
+        case 'playlist_reorder':
+            Playlists::reorder($user, (int) ($input['id'] ?? 0), (array) ($input['order'] ?? []));
+            json_out(['ok' => true]);
+            return;
+
+        case 'playlist_delete':
+            Playlists::delete($user, (int) ($input['id'] ?? 0));
+            json_out(['ok' => true]);
             return;
 
         /* ===== Pagamentos ===== */
