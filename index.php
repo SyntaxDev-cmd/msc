@@ -232,7 +232,7 @@ $v = APP_VERSION;
         <video id="np-video" playsinline preload="metadata"></video>
       </div>
       <div class="np-meta">
-        <div><h2 data-bind="title">—</h2><p data-bind="artist"></p></div>
+        <div><h2 data-bind="title">—</h2><p data-bind="artist"></p><span class="np-src" id="np-src" hidden></span></div>
         <button class="icon-btn pl-fav" data-action="fav-current"><svg><use href="#i-heart"/></svg></button>
       </div>
       <div class="pl-seek">

@@ -10,8 +10,9 @@ Só é preciso gerar um APK novo se mudar a parte nativa (este diretório).
   (anterior · play/pausa · próxima · barra de posição), controles na tela de bloqueio, fone Bluetooth e relógio.
 - **Salvar ao ouvir**: música tocada pelo player do YouTube por mais de 30 s vai sozinha para o acervo e, quando fica pronta,
   o player troca para o arquivo do servidor no mesmo ponto — daí em diante ela toca em segundo plano também.
-- Músicas tocadas pelo **player do YouTube pausam** quando o app vai para o fundo (exigência dos termos do YouTube) e
-  continuam quando você volta; na fila, o app pula para a próxima música do servidor.
+- **YouTube em segundo plano (1.1)**: com "YouTube em segundo plano no app" ligado no painel, o app mantém a página
+  "aberta" mesmo minimizado (a WebView continua se dizendo visível), então o player do YouTube segue tocando com a tela
+  apagada, com notificação e controles. Desligado (ou no modo loja), o YouTube pausa no fundo e a fila pula para músicas do servidor.
 - Botão voltar inteligente (fecha "tocando agora", janelas e menus; com música tocando, sair só manda o app para o fundo).
 - Compartilhar/copiar nativos (link de indicação, Pix copia-e-cola), seletor de arquivos (logo), downloads pelo
   gerenciador do Android, vídeo em tela cheia, tela "sem conexão" com "tentar de novo" (as músicas salvas offline continuam tocando).

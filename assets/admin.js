@@ -394,11 +394,13 @@
         <div class="grid2"><label class="fld"><span>Versão (versionCode) mais nova publicada</span><input type="number" min="1" name="app_latest_version_code" value="${esc(g.app_latest_version_code)}"></label>
         <label class="fld"><span>Versão mínima aceita (abaixo disso o app exige atualizar)</span><input type="number" min="0" name="app_min_version_code" value="${esc(g.app_min_version_code)}"></label></div>
         <label class="fld"><span>Mensagem do aviso de atualização (opcional)</span><input name="app_message" value="${esc(g.app_message)}" maxlength="200"></label>
+        <label class="switch"><input type="checkbox" name="app_bg_youtube" ${g.app_bg_youtube === '1' ? 'checked' : ''}><i></i> <b>YouTube em segundo plano no app</b> — o app mantém a página “aberta” e as músicas do YouTube continuam tocando com a tela apagada, com controles na notificação (desligado automaticamente no modo loja)</label>
         <label class="switch"><input type="checkbox" name="app_store_mode" ${g.app_store_mode === '1' ? 'checked' : ''}><i></i> Modo loja — dentro do app, esconde os botões de baixar do YouTube (exigido para publicar na Play Store; no site continua tudo igual)</label>
         <label class="fld"><span>Impressão digital SHA-256 da chave do app (abre links do site direto no app)</span><input name="app_sha256" value="${esc(g.app_sha256)}"></label>
         <div class="row end"><button class="btn primary">Salvar</button></div></form>
       <form class="card-form" id="f-dl"><h3>⬇️ Download do YouTube</h3>
         <p class="muted small">O YouTube costuma bloquear IPs de hospedagem ("confirme que não é um robô"). Quando isso acontece, o sistema baixa automaticamente por servidores alternativos open source (Invidious, Piped, Cobalt). Use <a href="install.php">Testar YouTube</a> para ver o que está funcionando no seu servidor.</p>
+        <label class="switch"><input type="checkbox" name="autosave_all" ${g.autosave_all === '1' ? 'checked' : ''}><i></i> <b>Baixar automaticamente tudo que os usuários tocarem</b> — música do YouTube ouvida por 30 s (e a próxima da fila) vai sozinha para o acervo, sem gastar o limite do plano. O player troca para o arquivo do servidor sem parar a música.</label>
         <label class="switch"><input type="checkbox" name="mirrors_enabled" ${g.mirrors_enabled === '1' ? 'checked' : ''}><i></i> Usar servidores alternativos quando o YouTube bloquear</label>
         <div class="grid2">
           <label class="fld"><span>Instâncias Invidious extras (uma por linha, opcional)</span><textarea name="mirror_invidious" rows="3" placeholder="https://invidious.exemplo.com">${esc(g.mirror_invidious)}</textarea></label>
@@ -437,8 +439,8 @@
     const onSubmit = (id, fn) => $(id)?.addEventListener('submit', async (e) => { e.preventDefault(); try { await fn(Sonora.formToObj(e.target)); } catch (ex) { toast(ex.message, 'err'); } });
     onSubmit('#f-brand', (o) => { o.support_url = o.brand_support_url; delete o.brand_support_url; return save({ global: o }, 'Marca atualizada 🎨'); });
     onSubmit('#f-mp', (o) => save({ global: { ...o, reseller_mp: o.reseller_mp ? '1' : '0' } }));
-    onSubmit('#f-app', (o) => save({ global: { ...o, app_store_mode: o.app_store_mode ? '1' : '0' } }));
-    onSubmit('#f-dl', (o) => save({ global: { ...o, mirrors_enabled: o.mirrors_enabled ? '1' : '0' } }));
+    onSubmit('#f-app', (o) => save({ global: { ...o, app_store_mode: o.app_store_mode ? '1' : '0', app_bg_youtube: o.app_bg_youtube ? '1' : '0' } }));
+    onSubmit('#f-dl', (o) => save({ global: { ...o, mirrors_enabled: o.mirrors_enabled ? '1' : '0', autosave_all: o.autosave_all ? '1' : '0' } }));
     onSubmit('#f-rules', (o) => save({ global: { ...o, signup_enabled: o.signup_enabled ? '1' : '0', referral_enabled: o.referral_enabled ? '1' : '0' } }));
     onSubmit('#f-mybrand', (o) => save({ mine: { brand: { name: o.b_name, tagline: o.b_tagline, color: o.b_color, color2: o.b_color2, support_url: o.b_support_url } } }, 'Marca atualizada 🎨'));
     onSubmit('#f-mymp', (o) => {

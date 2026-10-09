@@ -29,7 +29,8 @@ final class Jobs
      *  - added:  já existia no servidor -> vinculado na hora (não gasta download)
      *  - queued: entrou na fila de download
      */
-    public static function enqueue(array $item, string $kind, array $user): array
+    /** @param bool $auto pedido automático (música ouvida): não conta nos limites do plano */
+    public static function enqueue(array $item, string $kind, array $user, bool $auto = false): array
     {
         $source = (string) ($item['source'] ?? '');
         $sid = (string) ($item['source_id'] ?? '');
@@ -53,7 +54,9 @@ final class Jobs
             if (Account::isAdmin($user) || Library::inLibrary($user, (int) $t['id'])) {
                 return ['status' => 'exists', 'track_id' => (int) $t['id']];
             }
-            self::checkLimits($user, $kind, false);
+            if (!$auto) {
+                self::checkLimits($user, $kind, false);
+            }
             Library::link($uid, (int) $t['id']);
             return ['status' => 'added', 'track_id' => (int) $t['id']];
         }
@@ -63,13 +66,20 @@ final class Jobs
         );
         if ($j) {
             if (!Db::one('SELECT 1 FROM job_users WHERE job_id = ? AND user_id = ?', [$j['id'], $uid])) {
-                self::checkLimits($user, $kind, false);
+                if (!$auto) {
+                    self::checkLimits($user, $kind, false);
+                }
                 Db::exec('INSERT OR IGNORE INTO job_users (job_id, user_id) VALUES (?, ?)', [$j['id'], $uid]);
             }
             return ['status' => 'queued', 'job_id' => (int) $j['id']];
         }
-        self::checkLimits($user, $kind, true);
+        if (!$auto) {
+            self::checkLimits($user, $kind, true);
+        }
         $payload = array_intersect_key($item, array_flip(['title', 'artist', 'album', 'genre', 'year', 'duration', 'thumb', 'raw_title', 'channel']));
+        if ($auto) {
+            $payload['auto'] = 1;
+        }
         $id = Db::insert('jobs', [
             'source' => $source, 'source_id' => $sid, 'kind' => $kind, 'dedup_key' => $key,
             'title' => $title, 'artist' => $artist, 'thumb' => mb_substr((string) ($item['thumb'] ?? ''), 0, 500),
@@ -100,6 +110,7 @@ final class Jobs
             'progress' => round((float) $j['progress'], 1), 'message' => $j['message'],
             'track_id' => $j['track_id'] ? (int) $j['track_id'] : null, 'updated_at' => (int) $j['updated_at'],
             'username' => $j['username'],
+            'auto' => str_contains((string) $j['payload'], '"auto":1'),
         ], $rows);
     }
 

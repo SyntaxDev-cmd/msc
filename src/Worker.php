@@ -60,7 +60,7 @@ final class Worker
                 Jobs::deliver((int) $job['id'], $trackId);
                 Jobs::update((int) $job['id'], ['status' => 'done', 'progress' => 100, 'message' => $msg, 'track_id' => $trackId]);
             } catch (AgentHandoff $e) {
-                Jobs::update((int) $job['id'], ['status' => 'agent', 'progress' => 0, 'message' => 'Aguardando o agente de download no PC']);
+                Jobs::update((int) $job['id'], ['status' => 'agent', 'progress' => 0, 'message' => 'Aguardando o agente de download (o YouTube bloqueia a hospedagem)']);
             } catch (Throwable $e) {
                 Jobs::update((int) $job['id'], ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 400)]);
             }
@@ -99,14 +99,18 @@ final class Worker
                 $file = $tmp . '/media.mp3';
                 Http::download($prep['downloadUrl'], $file, fn($pct) => $progress(min(97, $pct)));
             } else {
+                // Download pela hospedagem falhou há pouco (bloqueio do YouTube): nem tenta de novo, vai direto
+                // para a fila do agente — não trava a fila nem mostra erro para quem só estava ouvindo.
+                $flag = storage_path('data/dl_blocked');
+                if (is_file($flag) && filemtime($flag) > time() - 1800) {
+                    throw new AgentHandoff();
+                }
                 try {
                     $file = YouTube::download($prep['youtubeId'], $job['kind'], $tmp, $progress);
                 } catch (Throwable $e) {
-                    // YouTube bloqueou o servidor: deixa para o agente de download (PC do administrador)
-                    if (Agent::configured()) {
-                        throw new AgentHandoff();
-                    }
-                    throw $e;
+                    // YouTube bloqueou o servidor: o pedido espera o agente de download (PC), nunca vira erro
+                    @touch($flag);
+                    throw new AgentHandoff();
                 }
             }
             return [self::finalize($job, $prep, $file, $progress), 'Pronto para ouvir'];

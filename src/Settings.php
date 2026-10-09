@@ -41,9 +41,11 @@ final class Settings
             'referral_reward_pct' => '20',
             'referral_max_pct' => '50',
             // App Android (WebView): o app abre o site, então quase tudo atualiza sozinho
+            'autosave_all' => '1',            // baixa automaticamente toda música do YouTube que alguém ouvir (>30 s)
+            'app_bg_youtube' => '1',          // no app, o YouTube continua tocando em segundo plano
             'app_store_mode' => '0',          // 1 = esconde downloads do YouTube dentro do app (regras da Play Store)
             'app_apk_url' => '',              // vazio = download/zmusic.apk deste site
-            'app_latest_version_code' => '1', // versão nativa mais nova (o app avisa quem tiver uma menor)
+            'app_latest_version_code' => '2', // versão nativa mais nova (o app avisa quem tiver uma menor)
             'app_min_version_code' => '0',    // abaixo disso o app exige atualizar
             'app_message' => '',
             'app_sha256' => '10:BF:6C:EF:22:70:1A:B1:3A:88:16:25:CD:5D:5E:D6:46:B8:90:86:F0:33:C9:8B:EB:6F:77:A1:A7:C1:CF:7B',

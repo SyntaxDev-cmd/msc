@@ -282,7 +282,7 @@
     load(autoplay, at = 0) {
       const t = this.track;
       if (!t) return;
-      if (t.remote && S.appHidden) {
+      if (t.remote && S.appHidden && !S.me?.app?.bg_youtube) {
         // Termos do YouTube: o player deles não toca com o app em segundo plano. Pula para a próxima do servidor.
         const j = this.queue.findIndex((id, i) => i > this.idx && !S.byId.get(id)?.remote);
         if (j > 0) { this.idx = j; return this.load(autoplay, 0); }
@@ -434,6 +434,16 @@
     if (Date.now() - lastSave > 5000) { lastSave = Date.now(); P.save(); }
     sendMedia(false);
     if (P.track?.remote && cur > 30 && !P.track.autosaved) autoSave(P.track);
+    if (dur && dur - cur < 25) prefetchNext();
+  }
+
+  /** Perto do fim, já baixa a próxima música do servidor: a troca de faixa fica instantânea (e não depende da rede no fundo) */
+  const prefetched = new Set();
+  function prefetchNext() {
+    const id = P.queue[P.idx + 1], n = S.byId.get(id);
+    if (!n || n.remote || prefetched.has(id) || Offline.has(id) || S.offlineMode || (n.size && n.size > 20e6)) return;
+    prefetched.add(id);
+    fetch(`stream.php?id=${id}`, { credentials: 'same-origin', priority: 'low' }).then((r) => r.blob()).catch(() => prefetched.delete(id));
   }
 
   /** Estado do player para a notificação/tela de bloqueio do app */
@@ -442,7 +452,7 @@
     if (!NativeApp.ok || (!force && Date.now() - lastMedia < 5000)) return;
     lastMedia = Date.now();
     const t = P.track, el = P.el;
-    NativeApp.send({ t: 'media', has: !!t && !S.bgBlocked, remote: !!t?.remote, title: t?.title || '', artist: t?.artist || '', album: t?.album || t?.genre || '',
+    NativeApp.send({ t: 'media', has: !!t && !S.bgBlocked, remote: !!t?.remote, bg: !!S.me?.app?.bg_youtube, title: t?.title || '', artist: t?.artist || '', album: t?.album || t?.genre || '',
       cover: t?.cover ? new URL(coverUrl(t), location.href).href : '', playing: !!t && !el.paused, pos: el.currentTime || 0, dur: el.duration || t?.duration || 0 });
   }
 
@@ -451,17 +461,44 @@
    * Quando fica pronta, o player troca para o arquivo do servidor no mesmo ponto (sem o ouvinte perceber) —
    * daí em diante ela toca até com a tela apagada e fica disponível para todo mundo.
    */
+  const saveItem = (t) => ({ ...(t.item || {}), source: 'youtube', source_id: t.youtube_id, title: t.title, artist: t.artist, album: t.album, genre: t.genre, duration: t.duration, thumb: t.thumb, kinds: ['audio'] });
   async function autoSave(t) {
     t.autosaved = true;
-    if (!store.get('autosave', true) || S.me?.app?.store_mode || S.offlineMode || !t.youtube_id) return;
-    const it = t.item || {};
-    const item = { ...it, source: 'youtube', source_id: t.youtube_id, title: t.title, artist: t.artist, album: t.album, genre: t.genre, duration: t.duration, thumb: t.thumb, kinds: ['audio'] };
-    try {
-      const r = await api('download', { body: { kind: 'audio', items: [item] } });
-      const res = r.results?.[0] || {};
-      if (res.track_id && (res.status === 'exists' || res.status === 'added')) return swapToServer(t.youtube_id, res.track_id);
-      if (res.status === 'queued') { t.saveJob = res.job_id; setTimeout(() => pollJobs(), 3000); }
-    } catch { /* limite do plano, sem rede…: segue tocando pelo YouTube */ }
+    if (S.me?.app?.store_mode || S.offlineMode || !t.youtube_id) return;
+    const all = !!S.me?.app?.autosave_all; // painel: baixar tudo que tocarem (sem gastar limite)
+    if (!all && !store.get('autosave', true)) return;
+    const save = async (x) => {
+      x.autosaved = true;
+      const res = all ? await api('autosave', { body: { item: saveItem(x) } })
+        : (await api('download', { body: { kind: 'audio', items: [saveItem(x)] } })).results?.[0] || {};
+      if (res.track_id && (res.status === 'exists' || res.status === 'added')) return swapToServer(x.youtube_id, res.track_id);
+      if (res.status === 'queued') { x.saveJob = res.job_id; updateSourceBadge(); setTimeout(() => pollJobs(), 3000); }
+    };
+    try { await save(t); } catch { return; /* limite do plano, sem rede…: segue tocando pelo YouTube */ }
+    // já deixa a próxima do YouTube da fila indo para o servidor (chega lá pronta, até com a tela apagada)
+    if (all) {
+      const nx = P.queue.slice(P.idx + 1).map((id) => S.byId.get(id)).find((x) => x?.remote && x.youtube_id && !x.autosaved);
+      if (nx) save(nx).catch(() => {});
+    }
+  }
+
+  /** Selo de origem na tela "tocando agora": YouTube (salvando…) ou servidor */
+  function updateSourceBadge() {
+    const b = $('#np-src'); if (!b) return;
+    const t = P.track;
+    if (!t) { b.hidden = true; return; }
+    b.hidden = false;
+    if (!t.remote) {
+      b.className = 'np-src ok';
+      b.textContent = Offline.has?.(t.id) ? '📴 Salva no aparelho · toca sem internet' : '✔ No servidor · toca com a tela apagada';
+      return;
+    }
+    const j = t.saveJob && S.jobs.find((x) => x.id === t.saveJob);
+    b.className = 'np-src yt';
+    b.textContent = !j ? '▶ Tocando pelo YouTube'
+      : j.status === 'running' ? `▶ YouTube · salvando no servidor ${Math.round(j.progress || 0)}%`
+        : j.status === 'agent' ? '▶ YouTube · na fila do agente de download'
+          : j.status === 'error' ? '▶ Tocando pelo YouTube' : '▶ YouTube · indo para o servidor…';
   }
 
   /** Troca a música do YouTube pelo arquivo do servidor (fila inteira), mantendo o ponto em que estava */
@@ -498,6 +535,7 @@
     Lyrics.load(t);
     renderQueue();
     sendMedia(true);
+    updateSourceBadge();
   }
   function setMSState() { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = P.el.paused ? 'paused' : 'playing'; }
   if ('mediaSession' in navigator) {
@@ -569,7 +607,7 @@
     setGain(i, v) { this.gains[i] = v; if (this.filters[i]) this.filters[i].gain.value = v; store.set('eq', this.gains); },
     start() { if (this.running) return; this.running = true; requestAnimationFrame(() => this.frame()); },
     frame() {
-      if (P.el.paused) { this.running = false; this.clear(); return; }
+      if (P.el.paused || S.appHidden || document.hidden) { this.running = false; if (P.el.paused) this.clear(); return; }
       requestAnimationFrame(() => this.frame());
       let levels;
       if (this.analyser && !P.track?.remote) { this.analyser.getByteFrequencyData(this.data); levels = this.data; }
@@ -694,6 +732,50 @@
     if (tab === 'lyrics') { Lyrics.cur = -1; Lyrics.sync(P.el.currentTime || 0); }
   }
   $$('.np-tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+  /* ---------- Gestos (celular) ---------- */
+  function swipe(el, { left, right, up, down, move, skip } = {}) {
+    let x0 = null, y0 = 0, axis = null;
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || e.target.closest('input, .seek, .pl-seek') || skip?.(e)) { x0 = null; return; }
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; axis = null;
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+      if (x0 === null) return;
+      const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+      if (!axis && Math.hypot(dx, dy) > 12) axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (axis) move?.(axis, dx, dy);
+    }, { passive: true });
+    el.addEventListener('touchend', (e) => {
+      if (x0 === null) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      let fn = null;
+      if (axis === 'x' && Math.abs(dx) > 70) fn = dx < 0 ? left : right;
+      else if (axis === 'y' && Math.abs(dy) > 90) fn = dy < 0 ? up : down;
+      move?.(null, 0, 0);
+      x0 = null;
+      if (fn) { el.dataset.swiped = Date.now(); fn(); }
+    });
+    // um deslize não vira clique
+    el.addEventListener('click', (e) => { if (Date.now() - (+el.dataset.swiped || 0) < 450) { e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+  // Tela "tocando agora": arrastar para baixo fecha; capa para os lados troca de música
+  const npEl = $('#np'), npArt = $('.np-art');
+  for (const zone of [$('.np-head'), $('.np-stage')]) {
+    swipe(zone, {
+      down: closeNP,
+      skip: () => $('.np-body').scrollTop > 4,
+      move: (axis, dx, dy) => {
+        if (axis === 'y' && dy > 0) { npEl.classList.add('dragging'); npEl.style.transform = `translateY(${dy * 0.6}px)`; }
+        else if (axis === 'x' && zone.classList.contains('np-stage')) { npArt.classList.add('swiping'); npArt.style.transform = `translateX(${dx * 0.5}px) rotate(${dx * 0.02}deg)`; }
+        else { npEl.classList.remove('dragging'); npEl.style.transform = ''; npArt.classList.remove('swiping'); npArt.style.transform = ''; }
+      },
+      left: () => { if (zone.classList.contains('np-stage')) P.next(); },
+      right: () => { if (zone.classList.contains('np-stage')) P.prev(); },
+    });
+  }
+  // Mini player: para cima abre, para os lados troca de música
+  swipe($('.pl-track'), { up: () => openNP(), left: () => P.next(), right: () => P.prev() });
 
   function renderQueue() {
     const box = $('#queue-list');
@@ -1016,7 +1098,7 @@
     if (!S.jobs.length) { box.innerHTML = `<div class="empty">${icon('download')}<h3>Nenhum download</h3><p>Busque uma música e toque em baixar.</p></div>`; return; }
     const waitingAgent = S.jobs.filter((j) => j.status === 'agent').length;
     const agentNote = waitingAgent ? `<div class="banner warn"><span>⏳ ${waitingAgent} música${waitingAgent > 1 ? 's' : ''} aguardando o <b>agente de download</b> (o YouTube bloqueia o servidor). ${isAdmin() ? 'Ligue o agente no seu PC.' : 'Assim que o administrador ligar o agente, elas baixam sozinhas. Enquanto isso, toque pelo botão ▶ Tocar.'}</span>${isAdmin() ? '<a class="btn sm primary" href="#/admin/settings">Ver agente</a>' : ''}</div>` : '';
-    const label = { queued: 'Na fila', running: 'Baixando', done: 'Pronto', error: 'Erro', agent: 'Aguardando o agente de download' };
+    const label = { queued: 'Na fila', running: 'Baixando', done: 'Pronto', error: 'Erro', agent: 'Na fila do agente de download' };
     box.innerHTML = agentNote + S.jobs.map((j) => `<div class="job ${j.status}" data-job="${j.id}">
       ${j.thumb ? `<img src="${esc(j.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph-sm"></div>'}
       <div style="min-width:0"><b>${esc(j.title)}${j.kind === 'video' ? '<span class="tag">vídeo</span>' : ''}</b>
@@ -1033,15 +1115,17 @@
     try {
       const r = await api('jobs');
       const newlyDone = r.jobs.filter((j) => j.status === 'done' && j.track_id && !knownDone.has(j.id));
-      const newlyErr = r.jobs.filter((j) => j.status === 'error' && !knownDone.has(j.id));
+      const newlyErr = r.jobs.filter((j) => j.status === 'error' && !j.auto && !knownDone.has(j.id));
       r.jobs.filter((j) => j.status === 'done' || j.status === 'error').forEach((j) => knownDone.add(j.id));
       S.jobs = r.jobs; S.pending = r.pending;
       for (const j of newlyDone) if (j.source === 'youtube' && j.kind === 'audio') swapToServer(j.source_id, j.track_id);
+      updateSourceBadge();
       const badge = $('#dl-badge'); badge.hidden = !r.pending; badge.textContent = r.pending;
       if (newlyDone.length && !firstPoll) {
         await loadLibrary();
-        if (newlyDone.length === 1) { const j = newlyDone[0]; toast(`✔ ${j.title} pronta para ouvir`, 'ok', { label: 'Ouvir', fn: () => P.playNow(j.track_id) }); }
-        else toast(`✔ ${newlyDone.length} músicas prontas`, 'ok');
+        const mine = newlyDone.filter((j) => !j.auto);
+        if (mine.length === 1) { const j = mine[0]; toast(`✔ ${j.title} pronta para ouvir`, 'ok', { label: 'Ouvir', fn: () => P.playNow(j.track_id) }); }
+        else if (mine.length > 1) toast(`✔ ${mine.length} músicas prontas`, 'ok');
         if (['home', 'library', 'genre', 'artist', 'all'].includes(currentRoute()[0] || 'home')) route();
       }
       if (newlyErr.length && !firstPoll) toast(`Falha: ${newlyErr[0].title} — ${newlyErr[0].message}`, 'err');
@@ -1489,8 +1573,9 @@
       </form>
       <h2 class="h2">Reprodução</h2>
       <div class="card-form">
-        <label class="switch"><input type="checkbox" id="autosave" ${store.get('autosave', true) ? 'checked' : ''} ${S.me.app?.store_mode ? 'disabled' : ''}><i></i>
-          Salvar ao ouvir — música tocada pelo YouTube vai sozinha para o acervo e passa a tocar do servidor (inclusive com a tela apagada no app)</label>
+        ${S.me.app?.autosave_all ? `<p class="muted small">✔ <b>Salvar ao ouvir</b> está ligado para todos: música tocada pelo YouTube vai sozinha para o acervo (sem gastar seu limite) e passa a tocar do servidor.</p>`
+        : `<label class="switch"><input type="checkbox" id="autosave" ${store.get('autosave', true) ? 'checked' : ''} ${S.me.app?.store_mode ? 'disabled' : ''}><i></i>
+          Salvar ao ouvir — música tocada pelo YouTube vai sozinha para o acervo e passa a tocar do servidor (inclusive com a tela apagada no app)</label>`}
         ${S.me.app?.apk_url && !NativeApp.inApp ? `<div class="row"><span>📱 <b>App para Android</b> — toca em segundo plano, com controles na notificação e na tela de bloqueio.</span><span class="spacer"></span><a class="btn sm primary" href="${esc(S.me.app.apk_url)}">Baixar o app</a></div>` : ''}
       </div>
       <h2 class="h2">Pagamentos</h2><div id="my-pays"><div class="skeleton"></div></div>
@@ -1633,9 +1718,11 @@
   function appVisible(v) {
     S.appHidden = !v;
     if (!v) {
-      if (P.track?.remote && !P.el.paused) { P.pause(); S.bgPaused = true; }
+      // Admin liberou: o app mantém a página "aberta" e o YouTube segue tocando. Senão, pausa (regra do YouTube).
+      if (P.track?.remote && !P.el.paused && !S.me?.app?.bg_youtube) { P.pause(); S.bgPaused = true; }
       return;
     }
+    if (!P.el.paused) Viz.start();
     if (S.bgBlocked || S.bgPaused) {
       const was = S.bgBlocked; S.bgBlocked = false; S.bgPaused = false;
       if (P.track) { was ? P.load(true) : P.play(); toast('▶ Continuando. Músicas pelo YouTube só tocam com o app aberto — as salvas no servidor tocam com a tela apagada.'); }

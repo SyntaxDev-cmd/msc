@@ -94,6 +94,8 @@ function me_payload(array $u): array
         'app' => [
             'in_app' => Settings::inApp(),
             'store_mode' => Settings::inApp() && Settings::get('app_store_mode') === '1',
+            'autosave_all' => Settings::get('autosave_all') === '1' && !(Settings::inApp() && Settings::get('app_store_mode') === '1'),
+            'bg_youtube' => Settings::inApp() && Settings::get('app_bg_youtube') === '1' && Settings::get('app_store_mode') !== '1',
             'apk_url' => Settings::apkUrl(),
         ],
         'csrf' => Auth::csrf(),
@@ -394,9 +396,20 @@ try {
             return;
 
         /* ===== Descoberta ===== */
-        case 'play_log': // música tocada direto do YouTube
+        case 'play_log': // música tocada direto do YouTube (>30 s)
             Discovery::log($user, $input);
             json_out(['ok' => true]);
+            return;
+
+        case 'autosave': // "Baixar tudo que tocarem" (painel): vai para o acervo sem gastar o limite do plano
+            need(Settings::get('autosave_all') === '1' && !(Settings::inApp() && Settings::get('app_store_mode') === '1'), 'Desativado');
+            $saved = Jobs::enqueue((array) ($input['item'] ?? []), 'audio', $user, true);
+            if ($saved['status'] === 'queued' && !Worker::busy()) {
+                respond_and_continue($saved);
+                Worker::run((int) cfg('worker_max_seconds', 270));
+                return;
+            }
+            json_out($saved);
             return;
 
         case 'home':

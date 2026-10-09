@@ -622,3 +622,23 @@ select.filter-input { padding: 8px 14px; color: var(--text); width: auto; }
 .store-mode [data-action=dl], .store-mode [data-pop=dl], .store-mode [data-action=download-all], .store-mode [data-kind], .store-mode #agent-dash { display: none !important; }
 html.in-app { -webkit-tap-highlight-color: transparent; }
 html.in-app body { overscroll-behavior-y: none; }
+
+/* ===== Tela "tocando agora" no celular (v2.7): nada sobrepõe; letra num cartão próprio ===== */
+.np-src { display: inline-block; margin-top: 8px; font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.85); }
+.np-src.ok { background: color-mix(in srgb, #22c55e 22%, transparent); color: #bbf7d0; }
+.np-src.yt { background: color-mix(in srgb, #ef4444 20%, transparent); color: #fecaca; }
+.np { touch-action: pan-y; }
+.np.dragging { transition: none; }
+.np-art.swiping { transition: none; }
+@media (max-width: 860px) {
+  .np-body { grid-template-columns: 1fr; grid-auto-rows: max-content; align-content: start; gap: 18px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px calc(24px + env(safe-area-inset-bottom)); }
+  .np-left { min-height: auto; justify-content: flex-start; }
+  .np-stage { width: min(100%, 44vh, 420px); }
+  .np-meta { margin-top: 14px; }
+  .np-right { min-height: 0; background: color-mix(in srgb, var(--accent) 26%, rgba(0,0,0,.45)); border-radius: 22px; padding: 4px 18px; box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); }
+  .np-right .np-pane { height: 64vh; }
+  .lyrics { padding: 22vh 0; font-size: 23px; line-height: 1.3; }
+  .lyrics p.active { transform: none; }
+  .np-right::before { content: "Letra"; display: block; font-weight: 800; font-size: 15px; padding: 12px 0 0; color: #fff; }
+  .np-right:has([data-pane=queue].active)::before { content: "A seguir"; }
+}

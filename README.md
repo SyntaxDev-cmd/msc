@@ -144,6 +144,14 @@ Tudo configurável em **Painel › Marca e config.**
 
 Tudo foi reimplementado em **PHP puro + SQLite + JavaScript sem build**, para rodar em hospedagem compartilhada sem Composer/Node.
 
+## 🎧 v2.7: baixar tudo que tocam + YouTube em 2º plano
+- **Painel › Download do YouTube › "Baixar automaticamente tudo que os usuários tocarem"**: música do YouTube ouvida por 30 s
+  (e a próxima da fila) vai sozinha para o acervo, sem gastar o limite do plano; o player troca para o arquivo do servidor sem parar.
+- Se o YouTube bloquear a hospedagem, o pedido **não vira erro**: fica na fila do agente de download (PC) e baixa quando ele ligar.
+- **App 1.1**: YouTube continua tocando com o app minimizado/tela apagada (Painel › App Android › "YouTube em segundo plano no app").
+- Player: tela "tocando agora" refeita no celular (letra num cartão, sem sobrepor), selo de origem (YouTube/servidor),
+  gestos (arrastar para baixo fecha, deslizar a capa troca de música, mini player para cima abre), pré-carrega a próxima música.
+
 ## 📱 App Android (v2.6)
 - **APK pronto** em `download/zmusic.apk` (pacote `sbs.zcloudpro.zmusic`): o app abre o site — **mudou o site, mudou o app**, sem APK novo.
 - **Segundo plano**: músicas do servidor tocam com a tela apagada, com notificação e controles na tela de bloqueio.
