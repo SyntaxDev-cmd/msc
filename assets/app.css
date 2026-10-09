@@ -312,7 +312,7 @@ body:not(.is-playing) .np-art { transform: scale(.94); }
 .np-pane { display: none; height: 100%; overflow-y: auto; }
 .np-pane.active { display: block; }
 .lyrics { padding: 30vh 0; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; letter-spacing: -.01em; line-height: 1.35; mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent); -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent); }
-.lyrics p { margin: 0 0 18px; color: rgba(255,255,255,.32); transition: color .35s, transform .35s, filter .35s; cursor: pointer; transform-origin: left center; filter: blur(.4px); }
+.lyrics p { margin: 0 0 18px; color: rgba(255,255,255,.32); transition: color .35s, transform .35s; cursor: pointer; transform-origin: left center; }
 .lyrics p:hover { color: rgba(255,255,255,.6); }
 .lyrics p.past { color: rgba(255,255,255,.5); }
 .lyrics p.active { color: #fff; transform: scale(1.03); filter: none; text-shadow: 0 0 30px color-mix(in srgb, var(--accent) 60%, transparent); }
@@ -641,4 +641,30 @@ html.in-app body { overscroll-behavior-y: none; }
   .lyrics p.active { transform: none; }
   .np-right::before { content: "Letra"; display: block; font-weight: 800; font-size: 15px; padding: 12px 0 0; color: #fff; }
   .np-right:has([data-pane=queue].active)::before { content: "A seguir"; }
+}
+
+/* ===== Seguir artistas (v2.8) ===== */
+.follow-btn em { font-style: normal; opacity: .7; font-weight: 600; margin-left: 2px; }
+.follow-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: #fff; }
+.follow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-top: 18px; }
+.follow-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 10px; border-radius: 18px; background: var(--panel); border: 1px solid var(--line); text-align: center; }
+.follow-card a { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; width: 100%; }
+.follow-card img, .follow-card .av { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 34px; margin-bottom: 6px; }
+.follow-card b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.follow-card small { color: var(--muted); }
+.follow-card .btn { font-size: 13px; padding: 6px 12px; }
+
+/* ===== Desempenho (v2.8): celular sem efeitos caros ===== */
+.np-bg img { will-change: transform; }
+.hscroll, .results, .table, .trk-list, #queue-list { contain: content; }
+.res, .trk { content-visibility: auto; contain-intrinsic-size: auto 64px; }
+@media (max-width: 860px), (pointer: coarse) {
+  /* desfoque por trás de elementos que mudam o tempo todo = travadas no celular */
+  .player { backdrop-filter: none; background: #12121c; }
+  .sidebar, .mobile-nav { backdrop-filter: none; }
+  .mobile-nav { background: #0e0e16; }
+  .modal-wrap { backdrop-filter: none; background: rgba(0,0,0,.75); }
+  .np-bg img { filter: blur(40px) saturate(1.4) brightness(.45); }
+  .lyrics { mask-image: none; -webkit-mask-image: none; }
+  .np-art { box-shadow: 0 24px 50px -20px rgba(0,0,0,.9); }
 }

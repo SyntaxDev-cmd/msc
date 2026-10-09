@@ -46,7 +46,8 @@ final class Worker
         // jobs "running" órfãos (processo morto pelo servidor) voltam para a fila
         Db::exec("UPDATE jobs SET status = CASE WHEN attempts >= 3 THEN 'error' ELSE 'queued' END,
                   message = CASE WHEN attempts >= 3 THEN 'Interrompido várias vezes' ELSE message END
-                  WHERE status = 'running' AND updated_at < ?", [time() - 180]);
+                  WHERE status = 'running' AND message NOT LIKE 'Agente:%' AND updated_at < ?", [time() - 180]);
+        // (pedidos com o agente do PC têm o próprio controle de tempo em Agent::next)
         while (time() - $start < $maxSeconds) {
             $job = Agent::online()
                 ? Db::one("SELECT * FROM jobs WHERE status = 'queued' AND source = 'jamendo' ORDER BY id LIMIT 1")
@@ -62,7 +63,13 @@ final class Worker
             } catch (AgentHandoff $e) {
                 Jobs::update((int) $job['id'], ['status' => 'agent', 'progress' => 0, 'message' => 'Aguardando o agente de download (o YouTube bloqueia a hospedagem)']);
             } catch (Throwable $e) {
-                Jobs::update((int) $job['id'], ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 400)]);
+                // falha passageira (rede, metadados, conversão): tenta de novo sozinho antes de mostrar erro
+                if ((int) $job['attempts'] + 1 < 3) {
+                    Jobs::update((int) $job['id'], ['status' => 'queued', 'progress' => 0, 'message' => 'Tentando de novo…']);
+                    sleep(2);
+                } else {
+                    Jobs::update((int) $job['id'], ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 400)]);
+                }
             }
             $done++;
         }
@@ -193,14 +200,14 @@ final class Worker
     }
 
     /** Etapa final: converte, organiza em Gênero/Artista/Música, salva a capa e cadastra no acervo */
-    public static function finalize(array $job, array $prep, string $file, callable $progress): int
+    public static function finalize(array $job, array $prep, string $file, callable $progress, bool $convert = true): int
     {
         $id = (int) $job['id'];
         $kind = $job['kind'];
         $m = $prep['m'];
         $key = $prep['key'];
         $youtubeId = $prep['youtubeId'];
-        if ($kind === 'audio') {
+        if ($kind === 'audio' && $convert) {
             $file = Mirrors::convert($file, dirname($file), $progress); // MP3/Opus se houver ffmpeg
         }
         $progress(99, 'Organizando');

@@ -361,6 +361,7 @@ final class Account
         Db::tx(function () use ($id) {
             Db::exec('DELETE FROM user_tracks WHERE user_id = ?', [$id]);
             Db::exec('DELETE FROM job_users WHERE user_id = ?', [$id]);
+            Db::exec('DELETE FROM artist_follows WHERE user_id = ?', [$id]);
             Db::exec('DELETE FROM accounts WHERE id = ?', [$id]);
         });
         Audit::log((int) $actor['id'], 'account.delete', $id, self::ROLES[$t['role']] . ' ' . $t['username']);
@@ -381,7 +382,7 @@ final class Account
         $id = (int) $u['id'];
         Db::tx(function () use ($id) {
             Db::exec('DELETE FROM playlist_tracks WHERE playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)', [$id]);
-            foreach (['playlists', 'play_events', 'stream_favs', 'user_tracks', 'job_users'] as $t) {
+            foreach (['playlists', 'play_events', 'stream_favs', 'artist_follows', 'user_tracks', 'job_users'] as $t) {
                 Db::exec("DELETE FROM $t WHERE user_id = ?", [$id]);
             }
             Db::exec('UPDATE accounts SET referred_by = NULL WHERE referred_by = ?', [$id]);

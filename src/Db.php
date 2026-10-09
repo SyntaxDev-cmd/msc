@@ -275,6 +275,22 @@ CREATE TABLE IF NOT EXISTS stream_favs (
 SQL);
             $pdo->exec('PRAGMA user_version = 3');
         }
+        if ($v < 4) {
+            // v4: seguir artistas + índice para a lista de downloads de cada usuário
+            $pdo->exec(<<<SQL
+CREATE TABLE IF NOT EXISTS artist_follows (
+    user_id INTEGER NOT NULL,
+    name_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    thumb TEXT DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, name_key)
+);
+CREATE INDEX IF NOT EXISTS idx_af_key ON artist_follows(name_key);
+CREATE INDEX IF NOT EXISTS idx_ju_user ON job_users(user_id, job_id);
+SQL);
+            $pdo->exec('PRAGMA user_version = 4');
+        }
     }
 
     private static int $txDepth = 0;

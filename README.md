@@ -144,6 +144,18 @@ Tudo configurável em **Painel › Marca e config.**
 
 Tudo foi reimplementado em **PHP puro + SQLite + JavaScript sem build**, para rodar em hospedagem compartilhada sem Composer/Node.
 
+## ⚡ v2.8: downloads sem falhas, player mais leve e seguir artistas
+- **Nova tentativa automática**: falha passageira (rede, YouTube, conversão) volta para a fila até 3 vezes antes de virar erro —
+  no servidor e no agente do PC. Corrigido: o servidor não "rouba" mais um pedido que o agente está baixando (era a causa de
+  "deu erro, mas na segunda vez baixou").
+- **Agente do PC mais rápido**: yt-dlp com repetições, envio em pedaços do maior tamanho que a hospedagem aceita (com repetição
+  de cada pedaço), progresso ao vivo e m4a publicado sem reconverter. **Atualiza sozinho** a partir desta versão
+  (baixe o agente de novo uma última vez no Painel).
+- **Player sem travadas**: consulta de downloads a cada 20 s quando só há pedidos esperando o agente (antes: a cada 2 s, sempre),
+  visualizador a 30 qps sem sombras no celular, nada de desfoque por trás do player no celular, fila e tela só redesenhadas quando mudam.
+- **Seguir artistas**: botão Seguir (com número de seguidores) no artista; página "Artistas que sigo"; no Início,
+  "Dos artistas que você segue" com as músicas deles.
+
 ## 🎧 v2.7: baixar tudo que tocam + YouTube em 2º plano
 - **Painel › Download do YouTube › "Baixar automaticamente tudo que os usuários tocarem"**: música do YouTube ouvida por 30 s
   (e a próxima da fila) vai sozinha para o acervo, sem gastar o limite do plano; o player troca para o arquivo do servidor sem parar.

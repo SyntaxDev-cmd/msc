@@ -41,6 +41,21 @@ final class Agent
         return (int) Settings::get('agent_seen') > 0;
     }
 
+    /** Versão do script do agente: mudou, o agente no PC se atualiza sozinho */
+    public const SCRIPT_VERSION = '3';
+
+    /** Maior pedaço de envio que o PHP desta hospedagem aceita (até 8 MB) */
+    public static function chunkSize(): int
+    {
+        $bytes = function (string $v): int {
+            $v = trim($v);
+            $n = (int) $v;
+            return match (strtoupper(substr($v, -1))) { 'G' => $n << 30, 'M' => $n << 20, 'K' => $n << 10, default => $n };
+        };
+        $max = min($bytes((string) ini_get('upload_max_filesize')) ?: 2 << 20, $bytes((string) ini_get('post_max_size')) ?: 8 << 20);
+        return max(512 << 10, min(8 << 20, $max - (64 << 10)));
+    }
+
     public static function online(): bool
     {
         return (int) Settings::get('agent_seen') > time() - 90;
@@ -59,7 +74,7 @@ final class Agent
         self::seen();
         // downloads presos com o agente (PC desligou no meio) voltam para a fila depois de 15 min
         Db::exec("UPDATE jobs SET status = 'agent', message = 'Aguardando o agente de download no PC'
-                  WHERE status = 'running' AND message LIKE 'Agente:%' AND updated_at < ?", [time() - 900]);
+                  WHERE status = 'running' AND message LIKE 'Agente:%' AND updated_at < ?", [time() - 1800]);
         for ($i = 0; $i < 5; $i++) {
             $job = Db::one("SELECT * FROM jobs WHERE status IN ('queued','agent') AND source IN ('youtube','itunes') ORDER BY id LIMIT 1");
             if (!$job) {
@@ -67,7 +82,7 @@ final class Agent
             }
             $id = (int) $job['id'];
             // reserva o pedido (outro agente/worker não pega o mesmo)
-            if (Db::exec("UPDATE jobs SET status = 'running', message = 'Agente: preparando', updated_at = ? WHERE id = ? AND status IN ('queued','agent')", [time(), $id]) !== 1) {
+            if (Db::exec("UPDATE jobs SET status = 'running', message = 'Agente: preparando', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status IN ('queued','agent')", [time(), $id]) !== 1) {
                 continue;
             }
             try {
@@ -81,7 +96,7 @@ final class Agent
                 $p['_prep'] = array_diff_key($prep, ['existing' => 1]);
                 Jobs::update($id, ['payload' => json_encode($p, JSON_UNESCAPED_UNICODE), 'progress' => 5, 'message' => 'Agente: baixando no PC']);
                 return ['id' => $id, 'video_id' => $prep['youtubeId'], 'kind' => $job['kind'],
-                        'title' => $prep['m']['title'], 'artist' => $prep['m']['artist']];
+                        'title' => $prep['m']['title'], 'artist' => $prep['m']['artist'], 'chunk' => self::chunkSize()];
             } catch (Throwable $e) {
                 Jobs::update($id, ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 300)]);
             }
@@ -137,7 +152,8 @@ final class Agent
             if (empty($p['_prep'])) {
                 throw new RuntimeException('Pedido sem dados de preparação');
             }
-            $trackId = Worker::finalize($job, $p['_prep'], $tmp . '/media.' . $ext, Worker::progressFn($id));
+            // m4a (AAC) toca em todo aparelho e já é leve: publica na hora, sem reconverter
+            $trackId = Worker::finalize($job, $p['_prep'], $tmp . '/media.' . $ext, Worker::progressFn($id), $ext !== 'm4a');
             Jobs::deliver($id, $trackId);
             Jobs::update($id, ['status' => 'done', 'progress' => 100, 'message' => 'Pronto para ouvir (baixado pelo agente)', 'track_id' => $trackId]);
             return $trackId;
@@ -149,11 +165,22 @@ final class Agent
         }
     }
 
+    /** Falhou no PC: volta para a fila (até 3 tentativas) antes de virar erro */
     public static function fail(int $id, string $error): void
     {
         self::seen();
-        Db::exec("UPDATE jobs SET status = 'error', message = ?, updated_at = ? WHERE id = ? AND status = 'running' AND message LIKE 'Agente:%'",
+        Db::exec("UPDATE jobs SET status = CASE WHEN attempts >= 3 THEN 'error' ELSE 'agent' END,
+                  message = CASE WHEN attempts >= 3 THEN ? ELSE 'Tentando de novo pelo agente…' END, progress = 0, updated_at = ?
+                  WHERE id = ? AND status = 'running' AND message LIKE 'Agente:%'",
             ['Agente: ' . mb_substr($error, 0, 300), time(), $id]);
+    }
+
+    /** Progresso do download no PC (também mostra que o agente segue trabalhando nele) */
+    public static function progress(int $id, float $pct): void
+    {
+        self::seen();
+        Db::exec("UPDATE jobs SET progress = ?, message = 'Agente: baixando no PC', updated_at = ? WHERE id = ? AND status = 'running' AND message LIKE 'Agente:%'",
+            [round(5 + max(0, min(100, $pct)) * 0.45, 1), time(), $id]);
     }
 
     /** Programa do agente para Windows (.bat com PowerShell embutido, já configurado) */
@@ -193,14 +220,34 @@ if (-not (Test-Path (Join-Path $Dir 'deno.exe'))) {
 Log "Conectado a $Server"
 Log 'Deixe esta janela aberta: os downloads pedidos no app vao chegar aqui e subir para o servidor.'
 $idle = 0
+function Send-Chunk($path, $url) {
+  for ($t = 1; $t -le 3; $t++) {
+    $out = & curl.exe -s -S --retry 3 --connect-timeout 30 -w "`n%{http_code}" -F ("file=@" + $path) $url
+    $code = ($out | Select-Object -Last 1)
+    if ($code -eq '200') { return }
+    $err = (($out | Select-Object -SkipLast 1) -join ' ')
+    if ($code -match '^4' -and $code -ne '408' -and $code -ne '429') { throw ("o servidor recusou o envio: " + $err) }
+    Log ("Envio falhou ($code), tentando de novo...")
+    Start-Sleep -Seconds (3 * $t)
+  }
+  throw ("o servidor nao recebeu o arquivo: " + $err)
+}
 while ($true) {
   $job = $null
   try {
     $r = Invoke-RestMethod -Uri "$Api`?action=agent_next&token=$Token" -TimeoutSec 90
+    if ($r.v -and $r.v -ne '__VERSION__' -and $env:AGENT_BAT) {
+      Log 'Nova versao do agente: atualizando sozinho...'
+      Invoke-WebRequest -Uri "$Api`?action=agent_update&token=$Token" -OutFile $env:AGENT_BAT -UseBasicParsing
+      Start-Process -FilePath $env:AGENT_BAT
+      $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
+      Stop-Process -Id $parent -Force -ErrorAction SilentlyContinue
+      exit
+    }
     $job = $r.job
     if (-not $job) {
       if ($idle++ % 60 -eq 0) { Log 'Aguardando pedidos de download...' }
-      Start-Sleep -Seconds 5
+      Start-Sleep -Seconds 3
       continue
     }
     $idle = 0
@@ -209,12 +256,30 @@ while ($true) {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     if ($job.kind -eq 'video') { $fmt = 'b[ext=mp4][height<=720]/b[ext=mp4]/b' } else { $fmt = 'bestaudio[ext=m4a]/bestaudio/best' }
-    & $Ytdlp --no-playlist --no-warnings --no-mtime --newline -f $fmt -o (Join-Path $tmp 'media.%(ext)s') ("https://www.youtube.com/watch?v=" + $job.video_id)
-    if ($LASTEXITCODE -ne 0) { throw "yt-dlp falhou (codigo $LASTEXITCODE)" }
+    $url = "https://www.youtube.com/watch?v=" + $job.video_id
+    $next = Get-Date
+    for ($try = 1; $try -le 3; $try++) {
+      & $Ytdlp --no-playlist --no-warnings --no-mtime --newline --retries 10 --fragment-retries 10 --extractor-retries 3 --socket-timeout 30 -f $fmt -o (Join-Path $tmp 'media.%(ext)s') $url | ForEach-Object {
+        $line = "$_"
+        if ($line -match '\[download\]\s+([\d\.]+)%') {
+          if ((Get-Date) -ge $next) {
+            $next = (Get-Date).AddSeconds(4)
+            Write-Host ("  {0}%" -f $Matches[1])
+            try { Invoke-RestMethod -Uri "$Api`?action=agent_progress&token=$Token&job_id=$($job.id)&pct=$($Matches[1])" -TimeoutSec 10 | Out-Null } catch {}
+          }
+        } else { Write-Host $line }
+      }
+      if ($LASTEXITCODE -eq 0) { break }
+      if ($try -eq 3) { throw "yt-dlp falhou (codigo $LASTEXITCODE)" }
+      Log "yt-dlp falhou, tentando de novo ($try/3)..."
+      Get-ChildItem -Path $tmp -File | Remove-Item -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds (4 * $try)
+    }
     $file = Get-ChildItem -Path $tmp -File | Where-Object { $_.Extension -notin @('.part', '.ytdl') } | Select-Object -First 1
     if (-not $file) { throw 'o yt-dlp nao gerou o arquivo' }
     Log ("Enviando para o servidor ({0:N1} MB)..." -f ($file.Length / 1MB))
     $size = 1MB
+    if ($job.chunk) { $size = [int]$job.chunk }
     $parts = [int][math]::Ceiling($file.Length / $size)
     $fs = [IO.File]::OpenRead($file.FullName)
     try {
@@ -225,9 +290,7 @@ while ($true) {
         while ($read -lt $len) { $read += $fs.Read($buf, $read, $len - $read) }
         $chunk = Join-Path $tmp ("chunk" + $i)
         [IO.File]::WriteAllBytes($chunk, $buf)
-        $out = & curl.exe -s -S -w "`n%{http_code}" -F ("file=@" + $chunk) "$Api`?action=agent_upload&token=$Token&job_id=$($job.id)&part=$i&parts=$parts"
-        $code = ($out | Select-Object -Last 1)
-        if ($code -ne '200') { throw ("o servidor recusou o envio: " + (($out | Select-Object -SkipLast 1) -join ' ')) }
+        Send-Chunk $chunk "$Api`?action=agent_upload&token=$Token&job_id=$($job.id)&part=$i&parts=$parts"
         Remove-Item $chunk -Force
       }
     } finally { $fs.Close() }
@@ -235,15 +298,16 @@ while ($true) {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
   } catch {
     $msg = $_.Exception.Message
-    Log ("Erro: " + $msg)
+    Log ("Erro: " + $msg + " (o pedido volta para a fila e sera tentado de novo)")
     if ($job) { try { Invoke-RestMethod -Method Post -Uri "$Api`?action=agent_fail&token=$Token&job_id=$($job.id)" -Body @{ error = $msg } | Out-Null } catch {} }
     Start-Sleep -Seconds 5
   }
 }
 PS;
-        $ps = strtr($ps, ['__SERVER__' => $server, '__TOKEN__' => $token, '__NAME__' => preg_replace('/[^\w .-]/u', '', $name)]);
+        $ps = strtr($ps, ['__SERVER__' => $server, '__TOKEN__' => $token, '__VERSION__' => self::SCRIPT_VERSION, '__NAME__' => preg_replace('/[^\w .-]/u', '', $name)]);
         $bat = "@echo off\r\n"
             . "title Agente de download - " . preg_replace('/[^A-Za-z0-9 .-]/', '', $name) . "\r\n"
+            . "set \"AGENT_BAT=%~f0\"\r\n"
             . 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(Get-Content -LiteralPath \'%~f0\' -Raw -Encoding UTF8) -split \'#####PS#####\'; Invoke-Expression $s[2]"' . "\r\n"
             . "pause\r\n"
             . "exit /b\r\n"

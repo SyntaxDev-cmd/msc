@@ -44,7 +44,7 @@ if ($action === 'assetlinks') {
 }
 
 /* ---------- Agente de download (programa no PC do administrador; autentica por token) ---------- */
-if (str_starts_with($action, 'agent_') && in_array($action, ['agent_next', 'agent_upload', 'agent_fail'], true)) {
+if (str_starts_with($action, 'agent_') && in_array($action, ['agent_next', 'agent_upload', 'agent_fail', 'agent_progress', 'agent_update'], true)) {
     try {
         if (!Agent::check((string) ($_GET['token'] ?? ''))) {
             json_out(['error' => 'Token do agente inválido. Baixe o agente de novo no painel.'], 403);
@@ -53,7 +53,15 @@ if (str_starts_with($action, 'agent_') && in_array($action, ['agent_next', 'agen
         @set_time_limit(300);
         switch ($action) {
             case 'agent_next':
-                json_out(['job' => Agent::next()]);
+                json_out(['job' => Agent::next(), 'v' => Agent::SCRIPT_VERSION]);
+                break;
+            case 'agent_progress':
+                Agent::progress((int) ($_GET['job_id'] ?? 0), (float) ($_GET['pct'] ?? 0));
+                json_out(['ok' => true]);
+                break;
+            case 'agent_update': // o agente baixa a versão nova de si mesmo
+                header('Content-Type: text/plain; charset=utf-8');
+                echo Agent::windowsScript();
                 break;
             case 'agent_upload':
                 json_out(['ok' => true, 'track_id' => Agent::upload((int) ($_GET['job_id'] ?? 0), $_FILES['file'] ?? [], (int) ($_GET['part'] ?? 0), (int) ($_GET['parts'] ?? 1))]);
@@ -258,6 +266,8 @@ try {
                     $cat = Innertube::artistCatalog($q, 800);
                     $items = $cat['items'];
                     $artistInfo = $cat['artist'] + ['count' => count($items)];
+                    $artistInfo['following'] = Follows::isFollowing($user, (string) $artistInfo['name']);
+                    $artistInfo['followers'] = Follows::followers((string) $artistInfo['name']);
                 } catch (Throwable $e) {
                     $items = [];
                 }
@@ -399,6 +409,26 @@ try {
         case 'play_log': // música tocada direto do YouTube (>30 s)
             Discovery::log($user, $input);
             json_out(['ok' => true]);
+            return;
+
+        /* ===== Seguir artistas ===== */
+        case 'follow':
+            [$on, $count] = Follows::toggle($user, (string) ($input['name'] ?? ''), (string) ($input['thumb'] ?? ''),
+                isset($input['on']) ? (bool) $input['on'] : null);
+            json_out(['following' => $on, 'followers' => $count]);
+            return;
+
+        case 'follows':
+            $name = (string) ($_GET['name'] ?? '');
+            json_out($name !== ''
+                ? ['following' => Follows::isFollowing($user, $name), 'followers' => Follows::followers($name)]
+                : ['artists' => Follows::list($user)]);
+            return;
+
+        case 'following_feed':
+            session_write_close();
+            @set_time_limit(90);
+            json_out(['artists' => Follows::list($user), 'items' => Library::annotate(Follows::feed($user), $user)]);
             return;
 
         case 'autosave': // "Baixar tudo que tocarem" (painel): vai para o acervo sem gastar o limite do plano

@@ -412,13 +412,20 @@
   }
 
   let lastSave = 0;
+  const UI = { seeks: $$('.seek'), cur: $$('[data-bind=cur]'), dur: $$('[data-bind=dur]'), mini: $('.pl-mini-progress i'), lastSec: -1, lastDur: -1, lastPct: -1 };
   function onTime() {
     const el = P.el, cur = el.currentTime || 0, dur = el.duration || P.track?.duration || 0;
     const pct = dur ? (cur / dur) * 100 : 0;
-    for (const s of $$('.seek')) if (!s.dragging) { s.value = Math.round(pct * 10); s.style.setProperty('--p', pct + '%'); }
-    $$('[data-bind=cur]').forEach((e) => (e.textContent = fmt(cur)));
-    $$('[data-bind=dur]').forEach((e) => (e.textContent = fmt(dur)));
-    $('.pl-mini-progress i').style.width = pct + '%';
+    // só mexe na tela quando o valor muda de verdade (o evento chega várias vezes por segundo)
+    const p10 = Math.round(pct * 10);
+    if (p10 !== UI.lastPct) {
+      UI.lastPct = p10;
+      for (const s of UI.seeks) if (!s.dragging) { s.value = p10; s.style.setProperty('--p', pct + '%'); }
+      UI.mini.style.width = pct + '%';
+    }
+    const sec = Math.floor(cur), dsec = Math.floor(dur);
+    if (sec !== UI.lastSec) { UI.lastSec = sec; const t = fmt(cur); for (const e of UI.cur) e.textContent = t; }
+    if (dsec !== UI.lastDur) { UI.lastDur = dsec; const t = fmt(dur); for (const e of UI.dur) e.textContent = t; }
     Lyrics.sync(cur);
     if (!P.counted && (cur > 30 || (dur && cur > dur / 2))) {
       P.counted = true; const t = P.track;
@@ -573,7 +580,7 @@
       };
       img.src = coverUrl(t);
     },
-    set(c) { document.documentElement.style.setProperty('--accent', c); },
+    set(c) { document.documentElement.style.setProperty('--accent', c); try { Viz.accent = c; } catch { /* ainda carregando */ } },
   };
   function rgb2hsl(r, g, b) {
     r /= 255; g /= 255; b /= 255;
@@ -605,16 +612,19 @@
       } catch (e) { console.warn('Web Audio indisponível', e); this.ctx = null; }
     },
     setGain(i, v) { this.gains[i] = v; if (this.filters[i]) this.filters[i].gain.value = v; store.set('eq', this.gains); },
-    start() { if (this.running) return; this.running = true; requestAnimationFrame(() => this.frame()); },
-    frame() {
+    start() { if (this.running) return; this.running = true; this.last = 0; this.accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || this.accent; requestAnimationFrame((t) => this.frame(t)); },
+    accent: '#8b5cf6', last: 0, lite: matchMedia('(max-width: 860px), (pointer: coarse)').matches,
+    frame(now = 0) {
       if (P.el.paused || S.appHidden || document.hidden) { this.running = false; if (P.el.paused) this.clear(); return; }
-      requestAnimationFrame(() => this.frame());
+      requestAnimationFrame((t) => this.frame(t));
+      if (now - this.last < 33) return; // ~30 quadros por segundo bastam e economizam bateria
+      this.last = now;
       let levels;
       if (this.analyser && !P.track?.remote) { this.analyser.getByteFrequencyData(this.data); levels = this.data; }
       else { const t = performance.now() / 1000; levels = Array.from({ length: 128 }, (_, i) => 90 + 70 * Math.sin(t * 3 + i * 0.4) * Math.sin(t * 1.3 + i * 0.13)); }
-      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#8b5cf6';
-      this.mini(levels, accent);
-      if ($('#np').classList.contains('open')) this.radial(levels, accent);
+      const accent = this.accent;
+      if ($('#np').classList.contains('open')) this.radial(levels, accent); // tela cheia aberta: o mini fica parado
+      else this.mini(levels, accent);
     },
     mini(levels, accent) {
       const c = $('#mini-viz'), x = c.getContext('2d'), w = c.width, h = c.height, n = 7;
@@ -628,7 +638,7 @@
       if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
       const x = c.getContext('2d'); x.clearRect(0, 0, W, H);
       const cx = W / 2, cy = H / 2, r0 = Math.min(W, H) * 0.33, bars = 96;
-      x.lineCap = 'round'; x.lineWidth = Math.max(2, (Math.PI * 2 * r0) / bars * 0.45); x.strokeStyle = accent; x.shadowColor = accent; x.shadowBlur = 18 * dpr;
+      x.lineCap = 'round'; x.lineWidth = Math.max(2, (Math.PI * 2 * r0) / bars * 0.45); x.strokeStyle = accent; x.shadowColor = accent; x.shadowBlur = this.lite ? 0 : 18 * dpr; // sombra é cara no celular
       for (let i = 0; i < bars; i++) {
         const idx = Math.floor((i < bars / 2 ? i : bars - i) * (levels.length * 0.7) / (bars / 2));
         const v = (levels[idx] || 0) / 255, len = 6 * dpr + v * v * r0 * 0.55, a = (i / bars) * Math.PI * 2 - Math.PI / 2;
@@ -722,6 +732,7 @@
     const np = $('#np'); np.classList.add('open'); np.setAttribute('aria-hidden', 'false');
     setTimeout(placeYT, 480); // depois da animação de abertura
     if (tab) setTab(tab);
+    else if (queueDirty && $('[data-pane=queue]').classList.contains('active')) renderQueue(true);
     Lyrics.cur = -1; Lyrics.sync(P.el.currentTime || 0);
     if (!P.el.paused) Viz.start();
   }
@@ -730,6 +741,7 @@
     $$('.np-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.np-pane').forEach((p) => p.classList.toggle('active', p.dataset.pane === tab));
     if (tab === 'lyrics') { Lyrics.cur = -1; Lyrics.sync(P.el.currentTime || 0); }
+    if (tab === 'queue' && queueDirty) renderQueue(true);
   }
   $$('.np-tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
 
@@ -777,7 +789,11 @@
   // Mini player: para cima abre, para os lados troca de música
   swipe($('.pl-track'), { up: () => openNP(), left: () => P.next(), right: () => P.prev() });
 
-  function renderQueue() {
+  let queueDirty = true;
+  /** A fila só é desenhada quando está visível (antes era redesenhada a cada troca de música) */
+  function renderQueue(force = false) {
+    if (!force && !($('#np').classList.contains('open') && $('[data-pane=queue]').classList.contains('active'))) { queueDirty = true; return; }
+    queueDirty = false;
     const box = $('#queue-list');
     if (!P.queue.length) { box.innerHTML = '<div class="empty"><h3>Fila vazia</h3><p>Toque uma música para começar</p></div>'; return; }
     const cur = P.track;
@@ -896,7 +912,7 @@
     const navKey = name === 'style' ? 'home' : ['genre', 'artist', 'all'].includes(name) ? 'library' : name === 'admin' ? (a ? `admin/${a}` : 'admin') : name;
     $$('[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === navKey));
     closePop();
-    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline, explore: vExplore, playlist: vPlaylist, style: vStyle };
+    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, following: vFollowing, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline, explore: vExplore, playlist: vPlaylist, style: vStyle };
     if (name === 'admin') Sonora.views.admin(a, b);
     else (views[name] || vHome)(a, b);
     $('#main').scrollTop = 0;
@@ -921,7 +937,7 @@
     const box = $('#home-dyn'); if (!box) return; // usuário saiu da página
     Object.assign(LISTS, { h_recent: d.recent, h_trend: d.trending, h_foryou: d.foryou, h_top: d.top });
     const listen = (key, label = 'Ouvir') => `<button class="btn sm" data-action="play-list" data-list="${key}">${icon('play')} ${label}</button>`;
-    let html = '';
+    let html = '<div id="home-follow"></div>';
     if (!d.recent.length && !d.trending.length) html += `<div class="banner info" style="margin-top:18px"><span>🎧 Busque um artista ou escolha um estilo abaixo — tudo toca na hora, e o que você e os outros ouvirem vira “Em alta”.</span></div>`;
     if (d.recent.length) html += `<h2 class="h2">Continuar ouvindo</h2><div class="hscroll">${d.recent.map((it, i) => itemCard(it, i, 'h_recent')).join('')}</div>`;
     if (d.trending.length) html += `<h2 class="h2"><span>🔥 Em alta esta semana <span class="muted small">entre todos os ouvintes</span></span>${listen('h_trend')}</h2>
@@ -932,6 +948,14 @@
     if (d.top.length) html += `<h2 class="h2"><span>🏆 Mais ouvidas de todos os tempos</span>${listen('h_top', 'Ouvir todas')}</h2>${itemRows(d.top.slice(0, 10), 'h_top', { rank: true })}`;
     if (d.artists.length) html += `<h2 class="h2">Seus artistas</h2><div class="artist-chips">${d.artists.map(artistChip).join('')}</div>`;
     box.innerHTML = html;
+    // artistas seguidos: carrega depois, para a tela inicial não esperar o YouTube
+    api('following_feed').then((f) => {
+      const el = $('#home-follow'); if (!el || !f.artists.length) return;
+      LISTS.h_follow = f.items;
+      el.innerHTML = `<h2 class="h2"><span>💜 Dos artistas que você segue</span><span class="row">${f.items.length ? `<button class="btn sm" data-action="play-list" data-list="h_follow">${icon('play')} Ouvir</button>` : ''}<a class="btn sm ghost" href="#/following">Ver todos</a></span></h2>
+        <div class="artist-chips" style="margin-bottom:12px">${f.artists.slice(0, 12).map(artistChip).join('')}</div>
+        ${f.items.length ? `<div class="hscroll">${f.items.slice(0, 30).map((it, i) => itemCard(it, i, 'h_follow', it.artist)).join('')}</div>` : ''}`;
+    }).catch(() => {});
   }
 
   /* ---------- Itens de descoberta (do servidor ou direto do YouTube) ---------- */
@@ -970,6 +994,38 @@
     }).join('')}</div>`;
   }
   const artistChip = (a) => `<a class="achip" href="#/search?q=${encodeURIComponent(a.name)}&s=artist">${a.thumb ? `<img src="${esc(a.thumb)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="av" style="background:${gradient(a.name)}">${esc((a.name || '?')[0])}</span>`}<span>${esc(a.name)}</span></a>`;
+
+  /* ---------- Seguir artistas ---------- */
+  const followBtn = (name, thumb, on, n) => `<button class="btn follow-btn${on ? ' on' : ''}" data-action="follow" data-name="${esc(name)}" data-thumb="${esc(thumb || '')}">${on ? `${icon('check')} Seguindo` : `${icon('plus')} Seguir`}${n ? ` <em>${Intl.NumberFormat('pt-BR', { notation: 'compact' }).format(n)}</em>` : ''}</button>`;
+  async function toggleFollow(btn) {
+    const name = btn.dataset.name, thumb = btn.dataset.thumb;
+    btn.disabled = true;
+    try {
+      const r = await api('follow', { body: { name, thumb } });
+      $$('.follow-btn').filter((b) => b.dataset.name === name).forEach((b) => (b.outerHTML = followBtn(name, thumb, r.following, r.followers)));
+      if (S.search.artist?.name === name) Object.assign(S.search.artist, { following: r.following, followers: r.followers });
+      toast(r.following ? `Seguindo ${name} — as músicas dele aparecem no Início` : `Você deixou de seguir ${name}`, r.following ? 'ok' : '');
+      if (currentRoute()[0] === 'following') vFollowing();
+    } catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+  }
+
+  async function vFollowing() {
+    view.innerHTML = `<h1 class="h1">Artistas que sigo</h1><p class="sub">As músicas deles aparecem no Início e aqui — tudo toca na hora.</p><div id="follow-box"><div class="skeleton" style="height:180px;margin-top:18px"></div></div>`;
+    let d;
+    try { d = await api('following_feed'); } catch (e) { $('#follow-box').innerHTML = `<div class="empty"><h3>Ops!</h3><p>${esc(e.message)}</p></div>`; return; }
+    const box = $('#follow-box'); if (!box) return;
+    if (!d.artists.length) {
+      box.innerHTML = `<div class="empty">${icon('users')}<h3>Você ainda não segue ninguém</h3><p>Busque um artista em <b>Artista (catálogo completo)</b> e toque em <b>Seguir</b>.</p><a class="btn primary" href="#/search?s=artist">Buscar artistas</a></div>`;
+      return;
+    }
+    LISTS.follow = d.items;
+    box.innerHTML = `<div class="follow-grid">${d.artists.map((a) => `<div class="follow-card">
+        <a href="#/search?q=${encodeURIComponent(a.name)}&s=artist">${a.thumb ? `<img src="${esc(a.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="av" style="background:${gradient(a.name)}">${esc(a.name[0] || '?')}</span>`}
+        <b>${esc(a.name)}</b><small>${a.followers} seguidor${a.followers !== 1 ? 'es' : ''}</small></a>
+        ${followBtn(a.name, a.thumb, true, 0)}</div>`).join('')}</div>
+      ${d.items.length ? `<h2 class="h2"><span>Músicas dos artistas que você segue</span><span class="row"><button class="btn sm primary" data-action="play-list" data-list="follow">${icon('play')} Tocar tudo</button></span></h2>
+        <div class="hscroll">${d.items.map((it, i) => itemCard(it, i, 'follow', it.artist)).join('')}</div>` : ''}`;
+  }
 
   /** Sugestão de artistas enquanto digita */
   function bindSuggest(root) {
@@ -1020,7 +1076,7 @@
     const gs = genres();
     view.innerHTML = `<h1 class="h1">Biblioteca</h1>
       <p class="sub">Organizada como no servidor: <b>Gênero › Artista › Música</b></p>
-      <div class="row"><a class="btn" href="#/all">${icon('music')} Todas as faixas (${S.tracks.length})</a></div>
+      <div class="row"><a class="btn" href="#/all">${icon('music')} Todas as faixas (${S.tracks.length})</a><a class="btn" href="#/favorites">${icon('heart')} Favoritas</a><a class="btn" href="#/following">${icon('users')} Artistas que sigo</a></div>
       <h2 class="h2">Gêneros</h2>
       ${gs.length ? `<div class="grid">${gs.map(genreCard).join('')}</div>` : '<div class="empty"><h3>Nenhum gênero ainda</h3><p>Baixe músicas pela busca.</p></div>'}
       <h2 class="h2">Artistas</h2><div class="grid">${artistsOf().map(artistCard).join('')}</div>`;
@@ -1047,8 +1103,9 @@
       <div class="hero"><div class="art" style="border-radius:50%">${cover ? `<img src="${coverUrl(cover)}" alt="">` : `<div class="ph" style="background:${gradient(a)}">${esc(a[0] || '?')}</div>`}</div>
       <div class="meta"><div class="kicker">Artista · ${esc(g)}</div><h1 class="h1">${esc(a)}</h1><p class="sub">${list.length} faixas na sua biblioteca</p>
       <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button><button class="btn" data-action="playlist-list" title="Adicionar tudo a uma playlist">${icon('plus')} Playlist</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}
-      <a class="btn" href="#/search?q=${encodeURIComponent(a)}&s=artist">${icon('search')} Buscar mais músicas</a></div></div></div>
+      <a class="btn" href="#/search?q=${encodeURIComponent(a)}&s=artist">${icon('search')} Buscar mais músicas</a><span id="art-follow"></span></div></div></div>
       ${trackList(list)}`;
+    api('follows', { params: { name: a } }).then((r) => { const el = $('#art-follow'); if (el) el.innerHTML = followBtn(a, '', r.following, r.followers); }).catch(() => {});
   }
 
   function vAll() {
@@ -1109,18 +1166,21 @@
       ${j.status !== 'running' ? `<button class="icon-btn" data-action="job-cancel" title="Remover">${icon('close')}</button>` : ''}</div></div>`).join('');
   }
 
-  let pollTimer = null, knownDone = new Set(), firstPoll = true;
+  let pollTimer = null, knownDone = new Set(), firstPoll = true, jobsSig = '';
   async function pollJobs(force = false) {
     clearTimeout(pollTimer);
     try {
       const r = await api('jobs');
+      // nada mudou: não redesenha nada (evita travadas com muitos pedidos na fila)
+      const sig = r.pending + '|' + r.jobs.map((j) => `${j.id}:${j.status}:${j.progress}`).join(',');
+      const same = sig === jobsSig; jobsSig = sig;
       const newlyDone = r.jobs.filter((j) => j.status === 'done' && j.track_id && !knownDone.has(j.id));
       const newlyErr = r.jobs.filter((j) => j.status === 'error' && !j.auto && !knownDone.has(j.id));
       r.jobs.filter((j) => j.status === 'done' || j.status === 'error').forEach((j) => knownDone.add(j.id));
       S.jobs = r.jobs; S.pending = r.pending;
       for (const j of newlyDone) if (j.source === 'youtube' && j.kind === 'audio') swapToServer(j.source_id, j.track_id);
       updateSourceBadge();
-      const badge = $('#dl-badge'); badge.hidden = !r.pending; badge.textContent = r.pending;
+      const badge = $('#dl-badge'); if (badge.textContent !== String(r.pending) || badge.hidden !== !r.pending) { badge.hidden = !r.pending; badge.textContent = r.pending; }
       if (newlyDone.length && !firstPoll) {
         await loadLibrary();
         const mine = newlyDone.filter((j) => !j.auto);
@@ -1130,11 +1190,14 @@
       }
       if (newlyErr.length && !firstPoll) toast(`Falha: ${newlyErr[0].title} — ${newlyErr[0].message}`, 'err');
       firstPoll = false;
-      syncResultsWithJobs();
-      renderJobs();
-      if (r.pending > 0 || force) pollTimer = setTimeout(() => pollJobs(), r.pending > 0 ? 2000 : 15000);
+      if (!same) { syncResultsWithJobs(); if (currentRoute()[0] === 'downloads') renderJobs(); }
+      // 2 s só enquanto algo está baixando de verdade; pedidos esperando o agente do PC: a cada 20 s
+      const active = r.jobs.some((j) => j.status === 'running' || j.status === 'queued');
+      const wait = document.hidden ? 60000 : active ? 2000 : r.pending > 0 ? 20000 : 15000;
+      if (r.pending > 0 || force) pollTimer = setTimeout(() => pollJobs(), wait);
     } catch { pollTimer = setTimeout(() => pollJobs(), 8000); }
   }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.pending > 0) pollJobs(); });
 
   /* ---------- Busca ---------- */
   const SOURCES = [['youtube', 'YouTube (tudo)'], ['artist', 'Artista (catálogo completo)'], ['catalog', 'Catálogo oficial'], ['jamendo', 'Músicas livres']];
@@ -1217,7 +1280,7 @@
     box.innerHTML = `${ar ? `<div class="artist-card">
         ${ar.thumb ? `<img src="${esc(ar.thumb)}" alt="" referrerpolicy="no-referrer">` : `<div class="ph" style="background:${gradient(ar.name)}">${esc(ar.name[0] || '?')}</div>`}
         <div><small>Artista no YouTube</small><b>${esc(ar.name)}</b><span>${[ar.subscribers, `${ar.count} músicas e vídeos encontrados`].filter(Boolean).map(esc).join(' · ')}</span></div>
-        <div class="row"><button class="btn primary" data-action="stream-all">${icon('play')} Ouvir tudo agora</button>
+        <div class="row">${followBtn(ar.name, ar.thumb, ar.following, ar.followers)}<button class="btn primary" data-action="stream-all">${icon('play')} Ouvir tudo agora</button>
         <button class="btn" data-action="download-all" ${todo.length ? '' : 'disabled'}>${icon('download')} Baixar discografia (${todo.length})</button></div></div>
         ${ar.related?.length ? `<div class="related"><small>Fãs também curtem</small><div class="artist-chips">${ar.related.map(artistChip).join('')}</div></div>` : ''}` : ''}
       <div class="results">${items.map((it) => {
@@ -1770,6 +1833,7 @@
       stream: () => streamResults(+a.closest('.res').dataset.idx),
       'stream-all': () => streamResults(-1),
       'play-item': () => playItems(LISTS[a.dataset.list], +a.dataset.i),
+      follow: () => toggleFollow(a),
       'play-list': () => playItems(LISTS[a.dataset.list], 0),
       'play-list-shuffle': () => playItems(LISTS[a.dataset.list], 0, true),
       clip: () => { store.set('clip', !store.get('clip', false)); placeYT(); toast(store.get('clip', false) ? 'Clipe ligado 🎬' : 'Clipe desligado — modo música 🎧'); },

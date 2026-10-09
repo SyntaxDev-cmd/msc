@@ -140,6 +140,7 @@ $v = APP_VERSION;
       <a href="#/explore" data-nav="explore"><svg><use href="#i-sparkle"/></svg><span>Explorar acervo</span></a>
       <a href="#/library" data-nav="library"><svg><use href="#i-library"/></svg><span>Biblioteca</span></a>
       <a href="#/favorites" data-nav="favorites"><svg><use href="#i-heart"/></svg><span>Favoritas</span></a>
+      <a href="#/following" data-nav="following"><svg><use href="#i-users"/></svg><span>Seguindo</span></a>
       <a href="#/downloads" data-nav="downloads"><svg><use href="#i-download"/></svg><span>Downloads</span><b class="badge" id="dl-badge" hidden>0</b></a>
       <a href="#/offline" data-nav="offline" class="only-offline"><svg><use href="#i-offline"/></svg><span>Offline</span></a>
       <a href="#/account" data-nav="account"><svg><use href="#i-user"/></svg><span>Minha conta</span></a>

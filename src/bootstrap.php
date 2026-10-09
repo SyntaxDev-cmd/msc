@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '2.7.0');
+define('APP_VERSION', '2.8.0');
 
 $GLOBALS['APP_CFG'] = array_replace(
     require APP_ROOT . '/config.example.php',
@@ -28,7 +28,7 @@ foreach (['library', 'data', 'tmp', 'tmp/cache'] as $dir) {
     }
 }
 
-foreach (['Text', 'Db', 'Cache', 'Http', 'Sys', 'Tools', 'Settings', 'Account', 'Playlists', 'Discovery', 'Auth', 'MercadoPago', 'Payments', 'Metadata', 'Innertube', 'Mirrors', 'YouTube', 'Jamendo', 'Library', 'Jobs', 'Worker', 'Agent'] as $class) {
+foreach (['Text', 'Db', 'Cache', 'Http', 'Sys', 'Tools', 'Settings', 'Account', 'Playlists', 'Discovery', 'Follows', 'Auth', 'MercadoPago', 'Payments', 'Metadata', 'Innertube', 'Mirrors', 'YouTube', 'Jamendo', 'Library', 'Jobs', 'Worker', 'Agent'] as $class) {
     require_once __DIR__ . '/' . $class . '.php';
 }
 
