@@ -16,6 +16,12 @@ final class YouTube
             $args[] = '--cookies';
             $args[] = storage_path('data/cookies.txt');
         }
+        $clients = trim(Settings::get('yt_clients'));
+        if ($clients !== '' && preg_match('/^[a-z_,]+$/', $clients)) {
+            // "aplicativo" do YouTube que o Testar YouTube descobriu que não é bloqueado neste servidor
+            $args[] = '--extractor-args';
+            $args[] = 'youtube:player_client=' . $clients;
+        }
         $proxy = trim(Settings::get('yt_proxy'));
         if ($proxy !== '' && preg_match('#^(https?|socks5h?)://#i', $proxy)) {
             $args[] = '--proxy';

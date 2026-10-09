@@ -88,23 +88,46 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         $diag[] = [false, 'Catálogo de artista (YouTube Music)', $e->getMessage()];
                     }
                     if (Tools::ytdlp()) {
-                        try {
+                        $try = function (string $clients) use ($vid): array {
                             $cmd = array_merge(Tools::ytdlp(), ['--ignore-config', '--no-warnings', '--no-playlist', '--simulate', '-f', 'bestaudio/best', '--print', '%(title)s'],
                                 is_file(storage_path('data/cookies.txt')) ? ['--cookies', storage_path('data/cookies.txt')] : [],
                                 Settings::get('yt_proxy') !== '' ? ['--proxy', Settings::get('yt_proxy')] : [],
+                                $clients !== '' ? ['--extractor-args', 'youtube:player_client=' . $clients] : [],
                                 ['https://www.youtube.com/watch?v=' . $vid]);
-                            [$code, $out, $e2] = Sys::run($cmd, 120);
-                            $ok = $code === 0;
-                            $detail = $ok ? 'OK: ' . trim($out) : Sys::lastLines($e2, 2);
-                            if (!$ok && stripos($e2, 'confirm') !== false) {
-                                $detail = 'O YouTube bloqueou o IP do servidor (anti-robô). Os servidores alternativos abaixo assumem — ou envie cookies.';
+                            try {
+                                [$code, $out, $e2] = Sys::run($cmd, 60);
+                            } catch (Throwable $e) {
+                                return [false, $e->getMessage()];
                             }
-                            $diag[] = [$ok, 'Download direto (yt-dlp)', $detail];
-                            if ($ok) {
-                                @unlink(storage_path('data/yt_blocked'));
+                            if ($code === 0) {
+                                return [true, 'OK: ' . trim($out)];
                             }
-                        } catch (Throwable $e) {
-                            $diag[] = [false, 'Download direto (yt-dlp)', $e->getMessage()];
+                            return [false, stripos($e2, 'confirm') !== false ? 'O YouTube bloqueou o IP do servidor (anti-robô)' : Sys::lastLines($e2, 2)];
+                        };
+                        $current = Settings::get('yt_clients');
+                        [$ok, $detail] = $try($current);
+                        if (!$ok) {
+                            // auto-ajuste: testa outros "aplicativos" do YouTube; o primeiro que passar fica salvo
+                            $tested = [];
+                            foreach (['tv_simply', 'tv', 'web_embedded', 'mweb', 'android_vr', 'web_safari', 'ios'] as $c) {
+                                if ($c === $current) {
+                                    continue;
+                                }
+                                [$ok2] = $try($c);
+                                $tested[] = $c . ($ok2 ? ' ✔' : ' ✖');
+                                if ($ok2) {
+                                    Settings::set(['yt_clients' => $c]);
+                                    [$ok, $detail] = [true, "Funcionou se apresentando como “{$c}” — ajuste salvo, os downloads diretos voltam a funcionar"];
+                                    break;
+                                }
+                            }
+                            if (!$ok) {
+                                $detail .= ' · também testei: ' . implode(', ', $tested);
+                            }
+                        }
+                        $diag[] = [$ok, 'Download direto (yt-dlp)', $detail];
+                        if ($ok) {
+                            @unlink(storage_path('data/yt_blocked'));
                         }
                     }
                     $tmp = storage_path('tmp/diag_' . bin2hex(random_bytes(4)));
@@ -205,10 +228,10 @@ $csrf = Auth::csrf();
                     <li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✔' : '✖' ?></span><b><?= $h($label) ?></b> <small><?= $h($detail) ?></small></li>
                 <?php endforeach; ?>
             </ul>
-            <p class="muted small">Basta <b>um</b> dos dois downloads funcionar. Se o direto falhar, o sistema usa os servidores alternativos sozinho.</p>
+            <p class="muted small">Basta <b>um</b> dos dois downloads funcionar. Se os dois falharem, as soluções (da mais simples para a mais garantida): <b>1)</b> enviar o cookies.txt abaixo; <b>2)</b> colocar uma chave grátis da API <a href="https://rapidapi.com/ytjar/api/youtube-mp36" target="_blank" rel="noopener">youtube-mp36</a> em Painel › Marca e config. › Download do YouTube; <b>3)</b> usar um proxy residencial no mesmo lugar.</p>
         <?php endif; ?>
         <div class="tool-grid">
-            <form method="post" class="tool" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Testando… (até 1 min)'">
+            <form method="post" class="tool" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Testando… (até 3 min)'">
                 <input type="hidden" name="csrf" value="<?= $h($csrf) ?>">
                 <input type="hidden" name="do" value="yttest">
                 <b>Testar YouTube</b>

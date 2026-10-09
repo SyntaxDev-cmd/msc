@@ -30,6 +30,8 @@ final class Settings
             'cobalt_url' => '',
             'cobalt_key' => '',
             'yt_proxy' => '',
+            'yt_clients' => '',
+            'rapidapi_key' => '',
             'referral_enabled' => '1',
             'referral_new_pct' => '10',
             'referral_reward_pct' => '20',

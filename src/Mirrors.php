@@ -91,13 +91,31 @@ final class Mirrors
         $err = curl_error($ch);
         fclose($fp);
         if (!$ok || $code >= 400 || str_contains($type, 'text/html') || str_contains($type, 'json')) {
+            $head = is_file($dest) ? (string) file_get_contents($dest, false, null, 0, 4000) : '';
             @unlink($dest);
-            throw new RuntimeException($err ?: "HTTP {$code}");
+            throw new RuntimeException($err ?: self::explain($code, $type, $head));
         }
         if (!self::looksLikeMedia($dest)) {
             @unlink($dest);
             throw new RuntimeException('arquivo inválido');
         }
+    }
+
+    /** Traduz respostas que não são áudio em algo compreensível no diagnóstico */
+    private static function explain(int $code, string $type, string $head): string
+    {
+        if (preg_match('/anubis|not a bot|captcha|challenge|cf-chl|just a moment|ddos-guard|verify you are human/i', $head)) {
+            return "HTTP {$code}: instância com proteção anti-robô (bloqueia downloads automáticos)";
+        }
+        if (str_contains($type, 'json')) {
+            $j = json_decode($head, true);
+            $msg = is_array($j) ? (string) ($j['error'] ?? $j['message'] ?? '') : '';
+            return "HTTP {$code}: " . ($msg !== '' ? mb_substr($msg, 0, 120) : 'respondeu JSON em vez de áudio');
+        }
+        if (preg_match('/<title>([^<]{1,80})/i', $head, $m)) {
+            return "HTTP {$code}: respondeu a página “" . trim($m[1]) . '” em vez do áudio';
+        }
+        return "HTTP {$code}: respondeu " . ($type ?: 'conteúdo desconhecido') . ' em vez do áudio';
     }
 
     /** Confere a "assinatura" do arquivo (evita salvar página de erro como música) */
@@ -139,6 +157,34 @@ final class Mirrors
             rename($raw, $final);
             return $final;
         };
+
+        // 0) API de conversão no RapidAPI (youtube-mp36) — o download sai do servidor deles, não do seu
+        $rapid = trim(Settings::get('rapidapi_key'));
+        if ($rapid !== '' && !$video) {
+            try {
+                $tries++;
+                $progress(2, 'Convertendo no servidor da API');
+                $r = [];
+                for ($i = 0; $i < 15; $i++) {
+                    $r = Http::json("https://youtube-mp36.p.rapidapi.com/dl?id={$id}", 30, [
+                        'X-RapidAPI-Key: ' . $rapid, 'X-RapidAPI-Host: youtube-mp36.p.rapidapi.com',
+                    ]);
+                    $busy = ($r['status'] ?? '') === 'processing' || (empty($r['link']) && (int) ($r['progress'] ?? 100) < 100 && ($r['status'] ?? '') !== 'fail');
+                    if (!$busy) {
+                        break;
+                    }
+                    sleep(2); // a API ainda está convertendo
+                }
+                if (($r['status'] ?? '') !== 'ok' || empty($r['link'])) {
+                    throw new RuntimeException((string) ($r['msg'] ?? 'sem link'));
+                }
+                self::fetch((string) $r['link'], $raw, $progress, 'Baixando (API de conversão)', ['Referer: https://youtube-mp36.p.rapidapi.com/']);
+                $log[] = '✔ API youtube-mp36';
+                return $done();
+            } catch (Throwable $e) {
+                $log[] = '✖ API youtube-mp36: ' . $e->getMessage();
+            }
+        }
 
         // 1) Cobalt (servidor configurado pelo admin)
         $cobalt = rtrim(Settings::get('cobalt_url'), '/');

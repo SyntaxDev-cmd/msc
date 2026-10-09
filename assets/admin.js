@@ -381,6 +381,8 @@
           <label class="fld"><span>Servidor Cobalt (opcional)</span><input name="cobalt_url" value="${esc(g.cobalt_url)}" placeholder="https://cobalt.seudominio.com"></label>
           <label class="fld"><span>Chave da API Cobalt (se exigir)</span><input name="cobalt_key" value="${esc(g.cobalt_key)}" autocomplete="off"></label>
         </div>
+        <label class="fld"><span>Chave RapidAPI da API <a href="https://rapidapi.com/ytjar/api/youtube-mp36" target="_blank" rel="noopener">youtube-mp36</a> (conversão para MP3 fora do seu servidor — tem plano grátis; o mais garantido contra o bloqueio)</span><input name="rapidapi_key" value="${esc(g.rapidapi_key)}" placeholder="cole a X-RapidAPI-Key" autocomplete="off"></label>
+        ${g.yt_clients ? `<p class="muted small">Ajuste automático do yt-dlp ativo: <b>${esc(g.yt_clients)}</b> (descoberto pelo Testar YouTube).</p>` : ''}
         <label class="fld"><span>Proxy para o yt-dlp (opcional — ex.: proxy residencial)</span><input name="yt_proxy" value="${esc(g.yt_proxy)}" placeholder="http://usuario:senha@ip:porta  ou  socks5://ip:porta"></label>
         <div class="row end"><a class="btn" href="install.php">Testar YouTube</a><button class="btn primary">Salvar</button></div></form>
       <div class="card-form"><h3>🛠️ Servidor</h3><p class="muted">Instalar/atualizar yt-dlp, Deno e ffmpeg, e ver a saúde do servidor.</p><div class="row"><a class="btn" href="install.php">Abrir ferramentas</a></div></div>` : `
