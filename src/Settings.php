@@ -24,6 +24,12 @@ final class Settings
             'default_plan_id' => '1',
             'public_url' => '',
             'reseller_mp' => '1',
+            'mirrors_enabled' => '1',
+            'mirror_invidious' => '',
+            'mirror_piped' => '',
+            'cobalt_url' => '',
+            'cobalt_key' => '',
+            'yt_proxy' => '',
         ];
     }
 

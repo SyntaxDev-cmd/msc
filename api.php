@@ -176,9 +176,24 @@ try {
             $limit = max(1, min(50, (int) ($_GET['limit'] ?? cfg('max_results', 25))));
             session_write_close();
             $fallback = false;
-            if (in_array($src, ['catalog', 'artist'], true)) {
+            $artistInfo = null;
+            if ($src === 'artist') {
                 try {
-                    $items = Metadata::searchCatalog($q, $src === 'artist', $limit);
+                    $cat = Innertube::artistCatalog($q, 300);
+                    $items = $cat['items'];
+                    $artistInfo = $cat['artist'] + ['count' => count($items)];
+                } catch (Throwable $e) {
+                    $items = [];
+                }
+                if (!$items) {
+                    $src = 'catalog_artist'; // reserva: discografia pelo catálogo iTunes
+                }
+            }
+            if ($src === 'artist') {
+                // já resolvido acima
+            } elseif (in_array($src, ['catalog', 'catalog_artist'], true)) {
+                try {
+                    $items = Metadata::searchCatalog($q, $src === 'catalog_artist', $limit);
                 } catch (Throwable $e) {
                     $items = [];
                 }
@@ -193,14 +208,14 @@ try {
                     default => throw new InvalidArgumentException('Fonte inválida'),
                 };
             }
-            json_out(['items' => Library::annotate($items, $user), 'fallback' => $fallback, 'limit' => $limit]);
+            json_out(['items' => Library::annotate($items, $user), 'fallback' => $fallback, 'limit' => $limit, 'artist' => $artistInfo]);
             return;
 
         case 'download':
             $kind = (string) ($input['kind'] ?? 'audio');
             $items = $input['items'] ?? (isset($input['item']) ? [$input['item']] : []);
             $res = ['queued' => 0, 'exists' => 0, 'added' => 0, 'errors' => 0, 'results' => [], 'error_msg' => ''];
-            foreach (array_slice((array) $items, 0, 200) as $item) {
+            foreach (array_slice((array) $items, 0, 300) as $item) {
                 try {
                     $r = Jobs::enqueue((array) $item, $kind, $user);
                     $res[$r['status']]++;

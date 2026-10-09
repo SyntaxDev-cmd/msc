@@ -50,7 +50,77 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     break;
                 case 'detect':
                     Tools::detect();
+                    @unlink(storage_path('data/yt_blocked'));
                     $msg = 'Ferramentas verificadas novamente.';
+                    break;
+                case 'cookies':
+                    $f = $_FILES['cookies'] ?? [];
+                    if (($f['error'] ?? 1) !== UPLOAD_ERR_OK || $f['size'] > 2 * 1024 * 1024) {
+                        throw new InvalidArgumentException('Envie o arquivo cookies.txt (até 2 MB).');
+                    }
+                    $txt = (string) file_get_contents($f['tmp_name']);
+                    if (!str_contains($txt, 'youtube.com') || !str_contains($txt, "\t")) {
+                        throw new InvalidArgumentException('Esse arquivo não parece um cookies.txt do YouTube (formato Netscape). Veja as instruções abaixo.');
+                    }
+                    file_put_contents(storage_path('data/cookies.txt'), $txt);
+                    @chmod(storage_path('data/cookies.txt'), 0600);
+                    @unlink(storage_path('data/yt_blocked'));
+                    $msg = 'Cookies salvos! Clique em "Testar YouTube" para conferir.';
+                    break;
+                case 'cookies_rm':
+                    @unlink(storage_path('data/cookies.txt'));
+                    $msg = 'Cookies removidos.';
+                    break;
+                case 'yttest':
+                    $diag = [];
+                    $vid = 'dQw4w9WgXcQ';
+                    try {
+                        $res = Innertube::videos(Innertube::call('search', ['query' => 'Henrique e Juliano', 'params' => 'EgIQAQ==']));
+                        $vid = $res[0]['id'] ?? $vid;
+                        $diag[] = [(bool) $res, 'Busca no YouTube (pelo PHP)', count($res) . ' vídeos encontrados'];
+                    } catch (Throwable $e) {
+                        $diag[] = [false, 'Busca no YouTube (pelo PHP)', $e->getMessage()];
+                    }
+                    try {
+                        $songs = Innertube::musicSongs('Henrique e Juliano', 20);
+                        $diag[] = [(bool) $songs, 'Catálogo de artista (YouTube Music)', count($songs) . ' músicas encontradas'];
+                    } catch (Throwable $e) {
+                        $diag[] = [false, 'Catálogo de artista (YouTube Music)', $e->getMessage()];
+                    }
+                    if (Tools::ytdlp()) {
+                        try {
+                            $cmd = array_merge(Tools::ytdlp(), ['--ignore-config', '--no-warnings', '--no-playlist', '--simulate', '-f', 'bestaudio/best', '--print', '%(title)s'],
+                                is_file(storage_path('data/cookies.txt')) ? ['--cookies', storage_path('data/cookies.txt')] : [],
+                                Settings::get('yt_proxy') !== '' ? ['--proxy', Settings::get('yt_proxy')] : [],
+                                ['https://www.youtube.com/watch?v=' . $vid]);
+                            [$code, $out, $e2] = Sys::run($cmd, 120);
+                            $ok = $code === 0;
+                            $detail = $ok ? 'OK: ' . trim($out) : Sys::lastLines($e2, 2);
+                            if (!$ok && stripos($e2, 'confirm') !== false) {
+                                $detail = 'O YouTube bloqueou o IP do servidor (anti-robô). Os servidores alternativos abaixo assumem — ou envie cookies.';
+                            }
+                            $diag[] = [$ok, 'Download direto (yt-dlp)', $detail];
+                            if ($ok) {
+                                @unlink(storage_path('data/yt_blocked'));
+                            }
+                        } catch (Throwable $e) {
+                            $diag[] = [false, 'Download direto (yt-dlp)', $e->getMessage()];
+                        }
+                    }
+                    $tmp = storage_path('tmp/diag_' . bin2hex(random_bytes(4)));
+                    @mkdir($tmp, 0755, true);
+                    $log = [];
+                    try {
+                        $file = Mirrors::download($vid, 'audio', $tmp, fn() => null, $log);
+                        $diag[] = [true, 'Download por servidor alternativo', 'OK (' . round(filesize($file) / 1048576, 1) . ' MB) · ' . end($log)];
+                    } catch (Throwable $e) {
+                        $diag[] = [false, 'Download por servidor alternativo', $e->getMessage() . ' · ' . implode(' · ', array_slice($log, 0, 4))];
+                    }
+                    foreach (glob($tmp . '/*') ?: [] as $f2) {
+                        @unlink($f2);
+                    }
+                    @rmdir($tmp);
+                    $msg = 'Teste do YouTube concluído — veja o resultado abaixo.';
                     break;
             }
         } catch (Throwable $e) {
@@ -67,7 +137,7 @@ $checks = [
     ['Extensão curl', extension_loaded('curl'), '', true],
     ['Pasta storage/ gravável', $writable, '', true],
     ['proc_open liberado (executar yt-dlp)', $tools['exec'], $tools['exec'] ? '' : 'Ative no hPanel › PHP Configuration › disable_functions', true],
-    ['Python 3.10+', (bool) $tools['python'], (string) $tools['python'], false],
+    ['Python (opcional — o yt-dlp instalado já vem com Python embutido)', true, $tools['python'] ? (string) $tools['python'] : 'não precisa', false],
     ['yt-dlp', (bool) $tools['ytdlp'], (string) $tools['ytdlp_version'], true],
     ['Deno (runtime JS p/ YouTube)', (bool) $tools['deno'], '', false],
     ['ffmpeg (converter p/ MP3/Opus)', (bool) $tools['ffmpeg'], 'Formato atual: ' . strtoupper(Tools::audioFormat()), false],
@@ -128,6 +198,35 @@ $csrf = Auth::csrf();
                 </form>
             <?php endforeach; ?>
         </div>
+        <h2>YouTube</h2>
+        <?php if (!empty($diag)): ?>
+            <ul class="checks">
+                <?php foreach ($diag as [$ok, $label, $detail]): ?>
+                    <li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✔' : '✖' ?></span><b><?= $h($label) ?></b> <small><?= $h($detail) ?></small></li>
+                <?php endforeach; ?>
+            </ul>
+            <p class="muted small">Basta <b>um</b> dos dois downloads funcionar. Se o direto falhar, o sistema usa os servidores alternativos sozinho.</p>
+        <?php endif; ?>
+        <div class="tool-grid">
+            <form method="post" class="tool" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Testando… (até 1 min)'">
+                <input type="hidden" name="csrf" value="<?= $h($csrf) ?>">
+                <input type="hidden" name="do" value="yttest">
+                <b>Testar YouTube</b>
+                <p class="muted">Confere busca, catálogo de artista e os dois caminhos de download, mostrando o erro real se algo falhar.</p>
+                <button class="btn primary">Testar agora</button>
+            </form>
+            <form method="post" class="tool" enctype="multipart/form-data">
+                <input type="hidden" name="csrf" value="<?= $h($csrf) ?>">
+                <input type="hidden" name="do" value="cookies">
+                <b>Cookies do YouTube <?= is_file(storage_path('data/cookies.txt')) ? '<small style="color:var(--ok)">✔ enviados</small>' : '' ?></b>
+                <p class="muted">Opcional. Faz o download direto funcionar mesmo com bloqueio: no Chrome instale a extensão “Get cookies.txt LOCALLY”, abra youtube.com logado (de preferência numa conta secundária), exporte e envie aqui.</p>
+                <input type="file" name="cookies" accept=".txt,text/plain" required>
+                <button class="btn">Enviar cookies.txt</button>
+            </form>
+        </div>
+        <?php if (is_file(storage_path('data/cookies.txt'))): ?>
+            <form method="post" style="margin-top:.5rem"><input type="hidden" name="csrf" value="<?= $h($csrf) ?>"><input type="hidden" name="do" value="cookies_rm"><button class="btn ghost sm">Remover cookies</button></form>
+        <?php endif; ?>
         <form method="post" style="margin-top:1rem">
             <input type="hidden" name="csrf" value="<?= $h($csrf) ?>">
             <input type="hidden" name="do" value="detect">

@@ -367,6 +367,17 @@
         <label class="fld"><span>Limites do teste grátis iguais ao plano</span><select name="default_plan_id">${ps.map((p) => `<option value="${p.id}" ${String(p.id) === g.default_plan_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
         <label class="fld"><span>URL pública do site (opcional)</span><input name="public_url" value="${esc(g.public_url)}" placeholder="https://musica.seusite.com"></label></div>
         <div class="row end"><button class="btn primary">Salvar</button></div></form>
+      <form class="card-form" id="f-dl"><h3>⬇️ Download do YouTube</h3>
+        <p class="muted small">O YouTube costuma bloquear IPs de hospedagem ("confirme que não é um robô"). Quando isso acontece, o sistema baixa automaticamente por servidores alternativos open source (Invidious, Piped, Cobalt). Use <a href="install.php">Testar YouTube</a> para ver o que está funcionando no seu servidor.</p>
+        <label class="switch"><input type="checkbox" name="mirrors_enabled" ${g.mirrors_enabled === '1' ? 'checked' : ''}><i></i> Usar servidores alternativos quando o YouTube bloquear</label>
+        <div class="grid2">
+          <label class="fld"><span>Instâncias Invidious extras (uma por linha, opcional)</span><textarea name="mirror_invidious" rows="3" placeholder="https://invidious.exemplo.com">${esc(g.mirror_invidious)}</textarea></label>
+          <label class="fld"><span>Instâncias Piped extras (API, opcional)</span><textarea name="mirror_piped" rows="3" placeholder="https://pipedapi.exemplo.com">${esc(g.mirror_piped)}</textarea></label>
+          <label class="fld"><span>Servidor Cobalt (opcional)</span><input name="cobalt_url" value="${esc(g.cobalt_url)}" placeholder="https://cobalt.seudominio.com"></label>
+          <label class="fld"><span>Chave da API Cobalt (se exigir)</span><input name="cobalt_key" value="${esc(g.cobalt_key)}" autocomplete="off"></label>
+        </div>
+        <label class="fld"><span>Proxy para o yt-dlp (opcional — ex.: proxy residencial)</span><input name="yt_proxy" value="${esc(g.yt_proxy)}" placeholder="http://usuario:senha@ip:porta  ou  socks5://ip:porta"></label>
+        <div class="row end"><a class="btn" href="install.php">Testar YouTube</a><button class="btn primary">Salvar</button></div></form>
       <div class="card-form"><h3>🛠️ Servidor</h3><p class="muted">Instalar/atualizar yt-dlp, Deno e ffmpeg, e ver a saúde do servidor.</p><div class="row"><a class="btn" href="install.php">Abrir ferramentas</a></div></div>` : `
       ${mine.can_brand ? `<form class="card-form" id="f-mybrand"><h3>🎨 Minha marca (white-label)</h3>
         <p class="muted small">Seus clientes (e suas revendas) verão o app com o seu nome, logo e cores. Mande para eles o seu link: <b>${esc(loginUrl())}</b></p>
@@ -392,6 +403,7 @@
     const onSubmit = (id, fn) => $(id)?.addEventListener('submit', async (e) => { e.preventDefault(); try { await fn(Sonora.formToObj(e.target)); } catch (ex) { toast(ex.message, 'err'); } });
     onSubmit('#f-brand', (o) => { o.support_url = o.brand_support_url; delete o.brand_support_url; return save({ global: o }, 'Marca atualizada 🎨'); });
     onSubmit('#f-mp', (o) => save({ global: { ...o, reseller_mp: o.reseller_mp ? '1' : '0' } }));
+    onSubmit('#f-dl', (o) => save({ global: { ...o, mirrors_enabled: o.mirrors_enabled ? '1' : '0' } }));
     onSubmit('#f-rules', (o) => save({ global: { ...o, signup_enabled: o.signup_enabled ? '1' : '0' } }));
     onSubmit('#f-mybrand', (o) => save({ mine: { brand: { name: o.b_name, tagline: o.b_tagline, color: o.b_color, color2: o.b_color2, support_url: o.b_support_url } } }, 'Marca atualizada 🎨'));
     onSubmit('#f-mymp', (o) => {

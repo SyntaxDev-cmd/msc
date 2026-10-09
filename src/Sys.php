@@ -35,7 +35,7 @@ final class Sys
         if (!self::canExec()) {
             throw new RuntimeException('proc_open está desativado neste servidor.');
         }
-        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, APP_ROOT, self::env());
+        $proc = @proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, APP_ROOT, self::env());
         if (!is_resource($proc)) {
             throw new RuntimeException('Falha ao iniciar ' . basename((string) $cmd[0]));
         }

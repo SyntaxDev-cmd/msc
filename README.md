@@ -22,6 +22,7 @@ storage/library/
 
 **Busca e download**
 - **Baixa qualquer música ou vídeo que existir no YouTube** — é a fonte padrão da busca (até 50 resultados com “Carregar mais”).
+- **Artista (catálogo completo)**: junta todas as músicas do artista no YouTube Music (áudio oficial, com álbum e capa) com os clipes do canal oficial, sem duplicar — até 300 faixas, com botão **“Baixar discografia”**.
 - Outras fontes: **Catálogo oficial** (iTunes, com gênero/álbum/capa oficiais), **Artista (discografia)** — até 150 músicas do artista para baixar tudo com 1 clique — e **Músicas livres** (Jamendo). Se o catálogo não encontrar a música, a busca cai automaticamente no YouTube.
 - Mesmo vídeos do YouTube ganham gênero e capa oficiais quando a música é reconhecida no catálogo; os demais vão para a pasta `Outros/Canal`.
 - Escolha **Áudio** ou **Vídeo** antes de baixar.
@@ -91,8 +92,10 @@ favoritas e contagem de reproduções. Se a música já existe no servidor, ela 
 
 | Projeto | Para quê |
 |---|---|
-| [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) | Busca e download de YouTube + extração/conversão de áudio |
-| [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds) | ffmpeg estático (sem root) para converter para MP3/Opus |
+| [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) | Download do YouTube + extração/conversão de áudio |
+| [sigma67/ytmusicapi](https://github.com/sigma67/ytmusicapi) | Referência para a busca direta no YouTube Music (catálogo do artista) |
+| [iv-org/invidious](https://github.com/iv-org/invidious), [TeamPiped/Piped](https://github.com/TeamPiped/Piped), [imputnet/cobalt](https://github.com/imputnet/cobalt) | Download alternativo quando o YouTube bloqueia o IP do servidor |
+| [eugeneware/ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) | ffmpeg estático em .gz (instala sem xz/root) |
 | [denoland/deno](https://github.com/denoland/deno) | Runtime JavaScript que o yt-dlp precisa para o YouTube atual |
 | [tranxuanthang/lrclib](https://github.com/tranxuanthang/lrclib) | API gratuita de letras sincronizadas (LRC) |
 | [iTunes Search API](https://performance-partners.apple.com/search-api) | Catálogo, gênero, álbum, ano e capas 600×600 (sem chave) |
@@ -136,10 +139,28 @@ bitrate (128 kbps padrão), altura máxima de vídeo, chave da YouTube Data API,
 | `mp3` 128k | sim | ~4 MB | Compatível com tudo |
 | `opus` 96k | sim | ~3 MB | O mais leve com ótima qualidade |
 
-### YouTube pedindo “confirme que você não é um robô”?
-IPs de datacenter às vezes recebem esse bloqueio. Exporte os cookies do YouTube do seu navegador (extensão
-“Get cookies.txt LOCALLY”), salve como `storage/data/cookies.txt` pelo Gerenciador de Arquivos, e pronto.
-Atualizar o yt-dlp no `install.php` também resolve a maioria dos erros.
+### YouTube pedindo “confirme que você não é um robô”? (comum em hospedagem)
+O YouTube bloqueia downloads vindos de IPs de datacenter, como o da Hostinger. O Sonora resolve sozinho:
+1. Tenta o **yt-dlp** direto (com seus cookies/proxy, se configurados).
+2. Se o YouTube bloquear, baixa por **servidores alternativos open source**:
+   [Invidious](https://github.com/iv-org/invidious), [Piped](https://github.com/TeamPiped/Piped) e,
+   se você cadastrar um, [Cobalt](https://github.com/imputnet/cobalt). As listas de instâncias públicas
+   são buscadas ao vivo e você pode adicionar as suas em **Painel › Marca e config. › Download do YouTube**.
+   O arquivo vem em M4A e é convertido para MP3 pelo ffmpeg.
+3. Depois de um bloqueio, os próximos downloads vão direto ao alternativo por 1 hora (não perde tempo).
+
+Use **install.php › Testar YouTube** para ver o que está funcionando no seu servidor (com o erro real).
+Para o download direto também funcionar, envie um **cookies.txt** ali mesmo (extensão “Get cookies.txt LOCALLY”
+no Chrome, logado no youtube.com — de preferência numa conta secundária). Também há campo para **proxy residencial**.
+
+### Sem Python? Sem problema
+O instalador baixa o `yt-dlp_linux`, que já vem com Python embutido. A **busca** nem usa o yt-dlp: o PHP fala
+direto com a API interna do YouTube/YouTube Music (inspirado no [ytmusicapi](https://github.com/sigma67/ytmusicapi)),
+sem abrir processos no servidor.
+
+### ffmpeg na Hostinger
+A Hostinger não tem o descompactador `xz`; por isso o instalador usa os binários estáticos `.gz` do
+[ffmpeg-static](https://github.com/eugeneware/ffmpeg-static), descompactados pelo próprio PHP.
 
 ## 🗂 Estrutura
 

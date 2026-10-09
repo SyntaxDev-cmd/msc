@@ -16,18 +16,55 @@ final class YouTube
             $args[] = '--cookies';
             $args[] = storage_path('data/cookies.txt');
         }
+        $proxy = trim(Settings::get('yt_proxy'));
+        if ($proxy !== '' && preg_match('#^(https?|socks5h?)://#i', $proxy)) {
+            $args[] = '--proxy';
+            $args[] = $proxy;
+        }
         return $args;
     }
 
+    /**
+     * Busca no YouTube: 1) API oficial (se houver chave) 2) Innertube direto pelo PHP (rápido,
+     * sem processos) 3) yt-dlp como reserva.
+     */
     public static function search(string $q, int $limit): array
     {
+        $limit = max(1, min(50, $limit));
+        $errors = [];
         if (cfg('youtube_api_key')) {
-            return self::searchApi($q, $limit);
+            try {
+                return self::searchApi($q, $limit);
+            } catch (Throwable $e) {
+                $errors[] = 'API: ' . $e->getMessage();
+            }
         }
+        try {
+            $items = Innertube::search($q, $limit);
+            if ($items) {
+                return $items;
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'YouTube: ' . $e->getMessage();
+        }
+        if (self::available()) {
+            try {
+                return self::searchYtdlp($q, $limit);
+            } catch (Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+        if ($errors) {
+            throw new RuntimeException('Busca no YouTube falhou — ' . implode(' | ', $errors));
+        }
+        return [];
+    }
+
+    public static function searchYtdlp(string $q, int $limit): array
+    {
         if (!self::available()) {
             throw new RuntimeException('yt-dlp não está instalado. Abra install.php para instalar.');
         }
-        $limit = max(1, min(50, $limit));
         return Cache::remember('yt:' . md5($q . $limit), 3600 * 6, function () use ($q, $limit) {
             $cmd = array_merge(Tools::ytdlp(), self::baseArgs(), ['--flat-playlist', '-J', "ytsearch{$limit}:{$q}"]);
             [$code, $out, $err] = Sys::run($cmd, 90);
@@ -87,7 +124,7 @@ final class YouTube
         });
     }
 
-    private static function mapEntry(string $id, string $rawTitle, string $channel, int $duration, int $views): array
+    public static function mapEntry(string $id, string $rawTitle, string $channel, int $duration, int $views): array
     {
         [$artist, $title] = Text::parseVideoTitle($rawTitle, $channel);
         return [
@@ -139,16 +176,44 @@ final class YouTube
     }
 
     /**
-     * Baixa (e converte) o vídeo. Retorna o caminho do arquivo final dentro de $tmpDir.
+     * Baixa (e converte). 1º yt-dlp direto do YouTube; se o YouTube bloquear o IP do servidor
+     * ("não é um robô") ou o yt-dlp faltar, baixa por servidores alternativos (Mirrors).
      */
     public static function download(string $id, string $kind, string $tmpDir, callable $progress): string
     {
         if (!preg_match('/^[A-Za-z0-9_-]{11}$/', $id)) {
             throw new InvalidArgumentException('ID de vídeo inválido');
         }
-        if (!self::available()) {
-            throw new RuntimeException('yt-dlp não está instalado. Abra install.php.');
+        $errors = [];
+        $flag = storage_path('data/yt_blocked');
+        $blocked = is_file($flag) && filemtime($flag) > time() - 3600;
+        if (self::available() && !$blocked) {
+            try {
+                return self::downloadYtdlp($id, $kind, $tmpDir, $progress);
+            } catch (Throwable $e) {
+                $errors[] = $e->getMessage();
+                if (str_contains($e->getMessage(), 'anti-robô')) {
+                    @touch($flag); // pula o yt-dlp por 1 h (vai direto aos servidores alternativos)
+                }
+                foreach (glob($tmpDir . '/*') ?: [] as $f) {
+                    @unlink($f);
+                }
+            }
         }
+        if (Settings::get('mirrors_enabled') === '1') {
+            try {
+                $progress(1, 'Tentando servidor alternativo');
+                $file = Mirrors::download($id, $kind, $tmpDir, $progress);
+                return $kind === 'video' ? $file : Mirrors::convert($file, $tmpDir, $progress);
+            } catch (Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+        throw new RuntimeException(implode(' · ', $errors) ?: 'yt-dlp não está instalado. Abra install.php.');
+    }
+
+    public static function downloadYtdlp(string $id, string $kind, string $tmpDir, callable $progress): string
+    {
         $ff = Tools::ffmpeg();
         $args = array_merge(self::baseArgs(), [
             '--newline', '--no-mtime', '--concurrent-fragments', '4',
@@ -198,7 +263,7 @@ final class YouTube
         if ($code !== 0 || !$files) {
             $msg = Sys::lastLines($err) ?: implode(' | ', array_slice($tail, -2));
             if (stripos($msg, 'Sign in to confirm') !== false) {
-                $msg = 'O YouTube pediu verificação anti-bot. Envie um cookies.txt em storage/data (veja o README).';
+                $msg = 'YouTube bloqueou o IP do servidor (anti-robô)';
             }
             throw new RuntimeException($msg ?: 'yt-dlp falhou');
         }

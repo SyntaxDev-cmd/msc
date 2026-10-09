@@ -162,24 +162,71 @@ final class Tools
         return 'ok';
     }
 
+    /**
+     * ffmpeg estático. A Hostinger não tem "xz", então usamos os binários .gz do projeto
+     * https://github.com/eugeneware/ffmpeg-static (descompactados pelo próprio PHP/zlib).
+     * Reserva: pacote .tar.xz do yt-dlp/FFmpeg-Builds, se o servidor tiver xz.
+     */
     public static function installFfmpeg(): string
     {
-        $name = self::arch() === 'arm64' ? 'ffmpeg-master-latest-linuxarm64-gpl' : 'ffmpeg-master-latest-linux64-gpl';
-        $tar = storage_path('tmp/ffmpeg.tar.xz');
-        Http::download("https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/{$name}.tar.xz", $tar);
-        [$code, , $err] = Sys::run(['tar', '-xJf', $tar, '-C', APP_ROOT . '/bin', '--strip-components=2', '--wildcards',
-            "{$name}/bin/ffmpeg", "{$name}/bin/ffprobe"], 600);
-        @unlink($tar);
-        if ($code !== 0) {
-            throw new RuntimeException('Falha ao extrair ffmpeg: ' . Sys::lastLines($err));
+        @mkdir(APP_ROOT . '/bin', 0755, true);
+        $arch = self::arch() === 'arm64' ? 'arm64' : 'x64';
+        $errors = [];
+        try {
+            foreach (['ffmpeg', 'ffprobe'] as $tool) {
+                $gz = storage_path("tmp/{$tool}.gz");
+                Http::download("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/{$tool}-linux-{$arch}.gz", $gz);
+                self::gunzip($gz, APP_ROOT . "/bin/{$tool}");
+                @unlink($gz);
+            }
+            if (self::detect()['ffmpeg']) {
+                return 'ok';
+            }
+            $errors[] = 'binário baixado mas não executou';
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
         }
-        @chmod(APP_ROOT . '/bin/ffmpeg', 0755);
-        @chmod(APP_ROOT . '/bin/ffprobe', 0755);
-        $s = self::detect();
-        if (!$s['ffmpeg']) {
-            throw new RuntimeException('ffmpeg extraído mas não executou neste servidor.');
+        try {
+            $name = $arch === 'arm64' ? 'ffmpeg-master-latest-linuxarm64-gpl' : 'ffmpeg-master-latest-linux64-gpl';
+            $tar = storage_path('tmp/ffmpeg.tar.xz');
+            Http::download("https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/{$name}.tar.xz", $tar);
+            [$code, , $err] = Sys::run(['tar', '-xJf', $tar, '-C', APP_ROOT . '/bin', '--strip-components=2', '--wildcards',
+                "{$name}/bin/ffmpeg", "{$name}/bin/ffprobe"], 600);
+            @unlink($tar);
+            @chmod(APP_ROOT . '/bin/ffmpeg', 0755);
+            @chmod(APP_ROOT . '/bin/ffprobe', 0755);
+            if ($code === 0 && self::detect()['ffmpeg']) {
+                return 'ok';
+            }
+            $errors[] = 'tar.xz: ' . Sys::lastLines($err);
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
         }
-        return 'ok';
+        throw new RuntimeException('Não foi possível instalar o ffmpeg: ' . implode(' | ', $errors) . '. O app continua funcionando em M4A.');
+    }
+
+    private static function gunzip(string $gz, string $dest): void
+    {
+        $in = gzopen($gz, 'rb');
+        $out = fopen($dest . '.new', 'wb');
+        if (!$in || !$out) {
+            throw new RuntimeException('Falha ao descompactar ' . basename($gz));
+        }
+        while (!gzeof($in)) {
+            $chunk = gzread($in, 1 << 20);
+            if ($chunk === false) {
+                throw new RuntimeException('Arquivo corrompido: ' . basename($gz));
+            }
+            fwrite($out, $chunk);
+        }
+        gzclose($in);
+        fclose($out);
+        if (filesize($dest . '.new') < 1_000_000) {
+            @unlink($dest . '.new');
+            throw new RuntimeException('Download incompleto de ' . basename($dest));
+        }
+        rename($dest . '.new', $dest);
+        @chmod($dest, 0755);
     }
 
     private static function unzip(string $zip, string $dest): void

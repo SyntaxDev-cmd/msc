@@ -692,7 +692,7 @@
   }
 
   /* ---------- Busca ---------- */
-  const SOURCES = [['youtube', 'YouTube (tudo)'], ['catalog', 'Catálogo oficial'], ['artist', 'Artista (discografia)'], ['jamendo', 'Músicas livres']];
+  const SOURCES = [['youtube', 'YouTube (tudo)'], ['artist', 'Artista (catálogo completo)'], ['catalog', 'Catálogo oficial'], ['jamendo', 'Músicas livres']];
   function vSearch() {
     const params = new URLSearchParams(location.hash.split('?')[1] || '');
     const q = params.get('q') || S.search.q, src = params.get('s') || S.search.source;
@@ -734,10 +734,10 @@
     try {
       const r = await api('search', { params: { q, source: S.search.source, limit: S.search.limit } });
       if (token !== S.search.token) return;
-      S.search.items = r.items; S.search.fallback = r.fallback;
+      S.search.items = r.items; S.search.fallback = r.fallback; S.search.artist = r.artist || null;
     } catch (e) {
       if (token !== S.search.token) return;
-      S.search.items = []; S.search.error = e.message;
+      S.search.items = []; S.search.error = e.message; S.search.artist = null;
     }
     S.search.loading = false; renderResults();
   }
@@ -762,12 +762,17 @@
     const btnAll = $('[data-action=download-all]', view);
     if (S.search.loading) { box.innerHTML = Array.from({ length: 6 }, () => '<div class="skeleton" style="margin-bottom:6px"></div>').join(''); if (btnAll) btnAll.disabled = true; return; }
     if (S.search.error) { box.innerHTML = `<div class="empty"><h3>Ops!</h3><p>${esc(S.search.error)}</p>${/yt-dlp|install/i.test(S.search.error) ? '<a class="btn primary" href="install.php">Abrir instalação</a>' : ''}</div>`; if (btnAll) btnAll.disabled = true; return; }
-    if (!S.search.q) { box.innerHTML = `<div class="empty">${icon('search')}<h3>Busque por música ou artista</h3><p>Qualquer música do YouTube pode ser baixada. Em <b>Artista (discografia)</b> você baixa tudo de um artista com um clique.</p></div>`; return; }
+    if (!S.search.q) { box.innerHTML = `<div class="empty">${icon('search')}<h3>Busque por música ou artista</h3><p>Qualquer música do YouTube pode ser baixada. Em <b>Artista (catálogo completo)</b> aparecem todas as músicas e clipes do artista no YouTube — baixe tudo com um clique.</p></div>`; return; }
     const items = visibleItems(), k = S.dlKind;
     if (!items.length) { box.innerHTML = '<div class="empty"><h3>Nada encontrado</h3><p>Tente outra busca, outra fonte ou desligue os filtros.</p></div>'; if (btnAll) btnAll.disabled = true; return; }
     const todo = items.filter((it) => !it.library?.[k] && !it.job?.[k]);
     if (btnAll) { btnAll.disabled = !todo.length; btnAll.innerHTML = `${icon('download')} Baixar todas (${todo.length})`; }
-    box.innerHTML = `<div class="results">${items.map((it) => {
+    const ar = S.search.source === 'artist' ? S.search.artist : null;
+    box.innerHTML = `${ar ? `<div class="artist-card">
+        ${ar.thumb ? `<img src="${esc(ar.thumb)}" alt="" referrerpolicy="no-referrer">` : `<div class="ph" style="background:${gradient(ar.name)}">${esc(ar.name[0] || '?')}</div>`}
+        <div><small>Artista no YouTube</small><b>${esc(ar.name)}</b><span>${[ar.subscribers, `${ar.count} músicas e vídeos encontrados`].filter(Boolean).map(esc).join(' · ')}</span></div>
+        <button class="btn primary" data-action="download-all" ${todo.length ? '' : 'disabled'}>${icon('download')} Baixar discografia (${todo.length})</button></div>` : ''}
+      <div class="results">${items.map((it) => {
       const i = S.search.items.indexOf(it);
       const meta = [it.artist, it.album, it.year].filter(Boolean).map(esc).join(' · ');
       const chips = [it.genre && `<span class="chip">${esc(it.genre)}</span>`, it.source === 'youtube' && `<span class="chip">${esc(it.channel)}</span>`,
@@ -781,7 +786,7 @@
         <div class="res-act">${resAction(it, k)}</div></div>`;
     }).join('')}</div>
     ${S.search.fallback ? '<p class="muted small" style="text-align:center">Não estava no catálogo oficial — mostrando resultados do YouTube.</p>' : ''}
-    ${S.search.limit < 50 && S.search.items.length >= S.search.limit && ['youtube', 'jamendo'].includes(S.search.source) || (S.search.fallback && S.search.limit < 50) ? `<div style="text-align:center;margin:18px 0"><button class="btn" data-action="more">${icon('down')} Carregar mais resultados</button></div>` : ''}`;
+    ${S.search.source !== 'artist' && (S.search.limit < 50 && S.search.items.length >= S.search.limit && ['youtube', 'jamendo'].includes(S.search.source) || (S.search.fallback && S.search.limit < 50)) ? `<div style="text-align:center;margin:18px 0"><button class="btn" data-action="more">${icon('down')} Carregar mais resultados</button></div>` : ''}`;
   }
   function resAction(it, k) {
     if (it.library?.[k]) return `<button class="btn sm have" data-action="play-one" data-id="${it.library[k]}">${icon('play')} ${k === 'video' ? 'Assistir' : 'Ouvir'}</button>`;

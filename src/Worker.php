@@ -109,7 +109,7 @@ final class Worker
                 [$artist, $title] = isset($p['raw_title'])
                     ? Text::parseVideoTitle((string) $p['raw_title'], (string) ($p['channel'] ?? ''))
                     : [(string) ($p['artist'] ?? ''), (string) ($p['title'] ?? '')];
-                $m = ['title' => $title, 'artist' => $artist, 'album' => '', 'genre' => '', 'year' => '',
+                $m = ['title' => $title, 'artist' => $artist, 'album' => (string) ($p['album'] ?? ''), 'genre' => '', 'year' => '',
                       'duration' => (int) ($p['duration'] ?? 0), 'thumb' => "https://i.ytimg.com/vi/{$youtubeId}/hqdefault.jpg"];
                 $progress(1, 'Identificando gênero');
                 $e = Metadata::enrich($artist, $title);
