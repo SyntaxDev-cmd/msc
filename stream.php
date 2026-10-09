@@ -5,13 +5,21 @@ declare(strict_types=1);
 require __DIR__ . '/src/bootstrap.php';
 start_session();
 
-if (!Auth::check()) {
+$user = Auth::user();
+if (!$user) {
     http_response_code(401);
     exit;
 }
 session_write_close();
 
 $t = Library::get((int) ($_GET['id'] ?? 0));
+if ($t && !Library::canAccess($user, (int) $t['id'])) {
+    $t = null;
+}
+if ($t && Account::expired($user) && !isset($_GET['cover'])) {
+    http_response_code(402);
+    exit;
+}
 $isCover = isset($_GET['cover']);
 $rel = $t ? ($isCover ? $t['cover_path'] : $t['file_path']) : '';
 $path = $rel !== '' ? realpath(Library::abs($rel)) : false;

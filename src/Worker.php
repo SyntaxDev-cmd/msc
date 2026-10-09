@@ -55,6 +55,7 @@ final class Worker
             Jobs::update((int) $job['id'], ['status' => 'running', 'progress' => 0, 'message' => 'Preparando', 'attempts' => (int) $job['attempts'] + 1]);
             try {
                 [$trackId, $msg] = self::process($job);
+                Jobs::deliver((int) $job['id'], $trackId);
                 Jobs::update((int) $job['id'], ['status' => 'done', 'progress' => 100, 'message' => $msg, 'track_id' => $trackId]);
             } catch (Throwable $e) {
                 Jobs::update((int) $job['id'], ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 400)]);

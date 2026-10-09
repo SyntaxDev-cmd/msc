@@ -36,30 +36,60 @@ final class Library
         }
         if ($row && !is_file(self::abs($row['file_path']))) {
             // arquivo apagado manualmente via FTP: limpa o registro para poder baixar de novo
+            Db::exec('DELETE FROM user_tracks WHERE track_id = ?', [$row['id']]);
             Db::exec('DELETE FROM tracks WHERE id = ?', [$row['id']]);
             return null;
         }
         return $row;
     }
 
-    /** Marca nos resultados da busca o que já está na biblioteca ou na fila */
-    public static function annotate(array $items): array
+    /** Usuário pode ouvir esta faixa? (admin ouve o acervo inteiro) */
+    public static function canAccess(array $user, int $trackId): bool
     {
+        if (Account::isAdmin($user)) {
+            return true;
+        }
+        return (bool) Db::one('SELECT 1 FROM user_tracks WHERE user_id = ? AND track_id = ?', [$user['id'], $trackId]);
+    }
+
+    public static function link(int $userId, int $trackId): void
+    {
+        Db::exec('INSERT OR IGNORE INTO user_tracks (user_id, track_id, added_at) VALUES (?, ?, ?)', [$userId, $trackId, time()]);
+    }
+
+    public static function unlink(int $userId, int $trackId): void
+    {
+        Db::exec('DELETE FROM user_tracks WHERE user_id = ? AND track_id = ?', [$userId, $trackId]);
+    }
+
+    /**
+     * Marca nos resultados o que o usuário já tem, o que já existe no servidor (adição instantânea)
+     * e o que está na fila.
+     */
+    public static function annotate(array $items, array $user): array
+    {
+        $admin = Account::isAdmin($user);
         foreach ($items as &$it) {
             $key = Text::key($it['artist'], $it['title']);
             $yt = $it['source'] === 'youtube' ? $it['source_id'] : '';
             $it['library'] = [];
+            $it['server'] = [];
             $it['job'] = [];
             foreach (['audio', 'video'] as $kind) {
                 $t = self::findExisting($it['source'], $it['source_id'], $kind, $key, $yt);
-                $it['library'][$kind] = $t ? (int) $t['id'] : null;
+                $mine = $t && ($admin || self::canAccess($user, (int) $t['id']));
+                $it['library'][$kind] = $mine ? (int) $t['id'] : null;
+                $it['server'][$kind] = $t ? (int) $t['id'] : null;
+                $it['job'][$kind] = null;
                 if (!$t) {
                     $j = Db::one(
                         "SELECT id, status, progress, message FROM jobs WHERE kind = ? AND status IN ('queued','running')
                          AND ((source = ? AND source_id = ?) OR dedup_key = ?) ORDER BY id DESC LIMIT 1",
                         [$kind, $it['source'], $it['source_id'], $key]
                     );
-                    $it['job'][$kind] = $j ?: null;
+                    if ($j && ($admin || Db::one('SELECT 1 FROM job_users WHERE job_id = ? AND user_id = ?', [$j['id'], $user['id']]))) {
+                        $it['job'][$kind] = $j;
+                    }
                 }
             }
         }
@@ -80,20 +110,44 @@ final class Library
             'mime' => $t['mime'],
             'size' => (int) $t['size'],
             'cover' => $t['cover_path'] !== '',
-            'plays' => (int) $t['plays'],
-            'favorite' => (bool) $t['favorite'],
+            'plays' => (int) ($t['u_plays'] ?? 0),
+            'favorite' => (bool) ($t['u_favorite'] ?? 0),
             'source' => $t['source'],
             'youtube_id' => $t['youtube_id'],
-            'path' => $t['file_path'],
-            'created_at' => (int) $t['created_at'],
-            'last_played' => (int) $t['last_played'],
+            'created_at' => (int) ($t['added_at'] ?? $t['created_at']),
+            'last_played' => (int) ($t['u_last_played'] ?? 0),
+            'owners' => isset($t['owners']) ? (int) $t['owners'] : null,
         ];
     }
 
-    public static function all(): array
+    /** Biblioteca do usuário (admin: acervo completo do servidor) */
+    public static function all(array $user): array
     {
-        $rows = Db::all('SELECT * FROM tracks ORDER BY genre COLLATE NOCASE, artist COLLATE NOCASE, album COLLATE NOCASE, title COLLATE NOCASE');
+        $order = ' ORDER BY t.genre COLLATE NOCASE, t.artist COLLATE NOCASE, t.album COLLATE NOCASE, t.title COLLATE NOCASE';
+        if (Account::isAdmin($user)) {
+            $rows = Db::all('SELECT t.*, ut.favorite u_favorite, ut.plays u_plays, ut.last_played u_last_played, COALESCE(ut.added_at, t.created_at) added_at,
+                (SELECT COUNT(*) FROM user_tracks x WHERE x.track_id = t.id) owners
+                FROM tracks t LEFT JOIN user_tracks ut ON ut.track_id = t.id AND ut.user_id = ?' . $order, [$user['id']]);
+        } else {
+            $rows = Db::all('SELECT t.*, ut.favorite u_favorite, ut.plays u_plays, ut.last_played u_last_played, ut.added_at
+                FROM user_tracks ut JOIN tracks t ON t.id = ut.track_id WHERE ut.user_id = ?' . $order, [$user['id']]);
+        }
         return array_map([self::class, 'publicRow'], $rows);
+    }
+
+    public static function touch(array $user, int $trackId, array $fields): void
+    {
+        // admin pode ter favoritas/plays em faixas que não "adicionou": cria a linha sob demanda
+        if (Account::isAdmin($user)) {
+            self::link((int) $user['id'], $trackId);
+        }
+        if (isset($fields['favorite'])) {
+            Db::exec('UPDATE user_tracks SET favorite = ? WHERE user_id = ? AND track_id = ?', [(int) $fields['favorite'], $user['id'], $trackId]);
+        }
+        if (!empty($fields['played'])) {
+            Db::exec('UPDATE user_tracks SET plays = plays + 1, last_played = ? WHERE user_id = ? AND track_id = ?', [time(), $user['id'], $trackId]);
+            Db::exec('UPDATE tracks SET plays = plays + 1, last_played = ? WHERE id = ?', [time(), $trackId]);
+        }
     }
 
     public static function delete(int $id): void
@@ -112,6 +166,7 @@ final class Library
             }
             @unlink(self::abs($rel));
         }
+        Db::exec('DELETE FROM user_tracks WHERE track_id = ?', [$id]);
         Db::exec('DELETE FROM tracks WHERE id = ?', [$id]);
         // remove pastas vazias (artista / gênero)
         $dir = dirname(self::abs($t['file_path']));

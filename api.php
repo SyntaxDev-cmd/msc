@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 require __DIR__ . '/src/bootstrap.php';
-start_session();
 
 $action = (string) ($_GET['action'] ?? '');
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -11,21 +10,94 @@ if ($method === 'POST') {
     $input = json_decode((string) file_get_contents('php://input'), true) ?: $_POST;
 }
 
+/* ---------- Webhook do Mercado Pago (público, sem sessão) ---------- */
+if ($action === 'mp_webhook') {
+    try {
+        Payments::webhook((int) ($_GET['r'] ?? 0), $_GET, is_array($input) ? $input : []);
+        json_out(['ok' => true]);
+    } catch (Throwable $e) {
+        json_out(['error' => 'retry'], 500); // o MP reenvia depois
+    }
+    return;
+}
+
+start_session();
+
+function me_payload(array $u): array
+{
+    $plan = Plans::find((int) $u['plan_id']);
+    $panel = Account::isAdmin($u) || Account::isReseller($u);
+    $settings = Account::settings($u);
+    [, $token] = Payments::receiverFor($u);
+    return [
+        'user' => Account::publicRow($u) + ['plan_name' => $plan['name'] ?? null],
+        'usage' => Account::usage($u),
+        'brand' => Account::brand($u),
+        'impersonating' => !empty($_SESSION['impersonator']),
+        'panel' => $panel,
+        'can_create' => Account::CHILDREN[$u['role']],
+        'plans' => Account::isAdmin($u) ? [] : Payments::plansFor($u),
+        'packages' => Account::isReseller($u) ? Settings::creditPackages() : [],
+        'mp_enabled' => $token !== '' || (Account::isReseller($u) && Settings::get('mp_access_token') !== ''),
+        'invite_url' => $panel && Settings::get('signup_enabled') === '1' && ($settings['signup'] ?? true)
+            ? Settings::baseUrl() . (Account::isAdmin($u) ? '' : '?r=' . rawurlencode($u['username'])) : null,
+        'roles' => Account::ROLES,
+        'csrf' => Auth::csrf(),
+    ];
+}
+
+function need(bool $cond, string $msg = 'Sem permissão'): void
+{
+    if (!$cond) {
+        throw new DomainException($msg);
+    }
+}
+
+function mask(string $s): string
+{
+    return $s === '' ? '' : str_repeat('•', 8) . substr($s, -6);
+}
+
 try {
-    if ($action === 'login') {
-        if (!Auth::configured()) {
-            json_out(['error' => 'Defina a senha em install.php'], 400);
+    /* ---------- Ações públicas ---------- */
+    switch ($action) {
+        case 'brand':
+            json_out(Account::publicBrand((string) ($_GET['r'] ?? '')));
             return;
-        }
-        if (!Auth::attempt((string) ($input['password'] ?? ''))) {
-            json_out(['error' => 'Senha incorreta'], 401);
+
+        case 'login':
+            if (!Auth::configured()) {
+                json_out(['error' => 'Conclua a instalação em install.php'], 400);
+                return;
+            }
+            $err = Auth::attempt((string) ($input['username'] ?? ''), (string) ($input['password'] ?? ''));
+            if ($err) {
+                json_out(['error' => $err], 401);
+                return;
+            }
+            json_out(['ok' => true, 'csrf' => Auth::csrf()]);
             return;
-        }
-        json_out(['ok' => true, 'csrf' => Auth::csrf()]);
-        return;
+
+        case 'signup':
+            $b = Account::publicBrand((string) ($input['ref'] ?? ''));
+            need($b['signup'], 'Cadastro desativado');
+            $ipKey = 'signup:' . client_ip();
+            need(Throttle::count($ipKey, 86400) < 3, 'Limite de cadastros atingido para esta rede. Tente amanhã.');
+            $parent = $b['ref'] !== '' ? Account::byUsername($b['ref']) : Db::one("SELECT * FROM accounts WHERE role = 'admin' ORDER BY id LIMIT 1");
+            $id = Account::create($parent, [
+                'role' => 'user', 'trial' => 1, 'username' => $input['username'] ?? '', 'password' => $input['password'] ?? '',
+                'name' => $input['name'] ?? '', 'email' => $input['email'] ?? '', 'phone' => $input['phone'] ?? '',
+                'notes' => 'Cadastro pelo site',
+            ]);
+            Throttle::hit($ipKey);
+            Auth::loginAs($id);
+            json_out(['ok' => true, 'csrf' => Auth::csrf()]);
+            return;
     }
 
-    if (!Auth::check()) {
+    /* ---------- Daqui para baixo: precisa estar logado ---------- */
+    $user = Auth::user();
+    if (!$user) {
         json_out(['error' => 'auth'], 401);
         return;
     }
@@ -33,27 +105,69 @@ try {
         json_out(['error' => 'Sessão expirada, recarregue a página'], 419);
         return;
     }
+    $admin = Account::isAdmin($user);
+    $reseller = Account::isReseller($user);
+    $panel = $admin || $reseller;
+
+    // Conta vencida: só pode ver a conta e pagar
+    $whenExpired = ['me', 'logout', 'stop_impersonate', 'profile_save', 'pay_create', 'pay_status', 'payments', 'status'];
+    if (Account::expired($user) && !in_array($action, $whenExpired, true)) {
+        json_out(['error' => 'expired', 'message' => 'Seu plano venceu. Renove para continuar ouvindo.'], 402);
+        return;
+    }
 
     switch ($action) {
+        /* ===== Conta ===== */
+        case 'me':
+            json_out(me_payload($user));
+            return;
+
         case 'logout':
             Auth::logout();
+            json_out(['ok' => true]);
+            return;
+
+        case 'stop_impersonate':
+            json_out(['ok' => Auth::stopImpersonating(), 'csrf' => Auth::csrf()]);
+            return;
+
+        case 'profile_save':
+            $set = [];
+            foreach (['name' => 80, 'email' => 120, 'phone' => 30] as $f => $max) {
+                if (isset($input[$f])) {
+                    $set[$f] = mb_substr(trim((string) $input[$f]), 0, $max);
+                }
+            }
+            if (!empty($set['email']) && !filter_var($set['email'], FILTER_VALIDATE_EMAIL)) {
+                throw new InvalidArgumentException('E-mail inválido');
+            }
+            if (!empty($input['password_new'])) {
+                need(password_verify((string) ($input['password_current'] ?? ''), $user['password_hash']), 'Senha atual incorreta');
+                need(mb_strlen((string) $input['password_new']) >= 6, 'A nova senha precisa ter 6+ caracteres');
+                $set['password_hash'] = password_hash((string) $input['password_new'], PASSWORD_DEFAULT);
+            }
+            if ($set) {
+                $sql = implode(', ', array_map(fn($k) => "$k = :$k", array_keys($set)));
+                Db::pdo()->prepare("UPDATE accounts SET $sql WHERE id = :id")->execute($set + ['id' => $user['id']]);
+            }
             json_out(['ok' => true]);
             return;
 
         case 'status':
             $t = Tools::state();
             json_out([
-                'app' => cfg('app_name'), 'version' => APP_VERSION,
+                'version' => APP_VERSION,
                 'youtube' => YouTube::available() || (bool) cfg('youtube_api_key'),
                 'download' => YouTube::available(), 'ffmpeg' => (bool) $t['ffmpeg'],
                 'audio_format' => Tools::audioFormat(), 'jamendo' => Jamendo::enabled(),
-                'pending' => Jobs::pendingCount(),
+                'pending' => Jobs::pendingCount($user),
             ]);
             return;
 
+        /* ===== Busca e downloads ===== */
         case 'search':
             $q = trim((string) ($_GET['q'] ?? ''));
-            $src = (string) ($_GET['source'] ?? 'catalog');
+            $src = (string) ($_GET['source'] ?? 'youtube');
             if (mb_strlen($q) < 2) {
                 json_out(['items' => []]);
                 return;
@@ -63,7 +177,6 @@ try {
             session_write_close();
             $fallback = false;
             if (in_array($src, ['catalog', 'artist'], true)) {
-                // Catálogo primeiro (gênero/capa oficiais); se não achar nada, cai no YouTube
                 try {
                     $items = Metadata::searchCatalog($q, $src === 'artist', $limit);
                 } catch (Throwable $e) {
@@ -80,24 +193,25 @@ try {
                     default => throw new InvalidArgumentException('Fonte inválida'),
                 };
             }
-            json_out(['items' => Library::annotate($items), 'fallback' => $fallback, 'limit' => $limit]);
+            json_out(['items' => Library::annotate($items, $user), 'fallback' => $fallback, 'limit' => $limit]);
             return;
 
         case 'download':
             $kind = (string) ($input['kind'] ?? 'audio');
             $items = $input['items'] ?? (isset($input['item']) ? [$input['item']] : []);
-            $res = ['queued' => 0, 'exists' => 0, 'errors' => 0, 'results' => []];
+            $res = ['queued' => 0, 'exists' => 0, 'added' => 0, 'errors' => 0, 'results' => [], 'error_msg' => ''];
             foreach (array_slice((array) $items, 0, 200) as $item) {
                 try {
-                    $r = Jobs::enqueue((array) $item, $kind);
+                    $r = Jobs::enqueue((array) $item, $kind, $user);
                     $res[$r['status']]++;
                     $res['results'][] = $r;
                 } catch (Throwable $e) {
                     $res['errors']++;
+                    $res['error_msg'] = $e->getMessage();
                     $res['results'][] = ['status' => 'error', 'error' => $e->getMessage()];
                 }
             }
-            $res['jobs'] = Jobs::list(30);
+            $res['jobs'] = Jobs::list($user, 30);
             if ($res['queued'] > 0 && !Worker::busy()) {
                 respond_and_continue($res);
                 Worker::run((int) cfg('worker_max_seconds', 270));
@@ -107,9 +221,8 @@ try {
             return;
 
         case 'jobs':
-            $res = ['jobs' => Jobs::list(100), 'pending' => Jobs::pendingCount()];
-            // "auto-cura": se há fila e nenhum processador rodando, inicia um
-            if ($res['pending'] > 0 && !Worker::busy()) {
+            $res = ['jobs' => Jobs::list($user, 100), 'pending' => Jobs::pendingCount($user)];
+            if (Jobs::pendingCount() > 0 && !Worker::busy()) {
                 respond_and_continue($res);
                 Worker::run((int) cfg('worker_max_seconds', 270));
                 return;
@@ -118,42 +231,55 @@ try {
             return;
 
         case 'job_retry':
-            Jobs::retry((int) ($input['id'] ?? 0));
+            Jobs::retry($user, (int) ($input['id'] ?? 0));
             json_out(['ok' => true]);
             return;
 
         case 'job_cancel':
-            Jobs::cancel((int) ($input['id'] ?? 0));
+            Jobs::cancel($user, (int) ($input['id'] ?? 0));
             json_out(['ok' => true]);
             return;
 
         case 'jobs_clear':
-            Jobs::clearFinished();
+            Jobs::clearFinished($user);
             json_out(['ok' => true]);
             return;
 
+        /* ===== Biblioteca ===== */
         case 'library':
-            json_out(['tracks' => Library::all()]);
+            json_out(['tracks' => Library::all($user)]);
             return;
 
         case 'favorite':
-            Db::exec('UPDATE tracks SET favorite = ? WHERE id = ?', [!empty($input['value']) ? 1 : 0, (int) ($input['id'] ?? 0)]);
+            $tid = (int) ($input['id'] ?? 0);
+            need(Library::canAccess($user, $tid));
+            Library::touch($user, $tid, ['favorite' => !empty($input['value'])]);
             json_out(['ok' => true]);
             return;
 
         case 'played':
-            Db::exec('UPDATE tracks SET plays = plays + 1, last_played = ? WHERE id = ?', [time(), (int) ($input['id'] ?? 0)]);
+            $tid = (int) ($input['id'] ?? 0);
+            if (Library::canAccess($user, $tid)) {
+                Library::touch($user, $tid, ['played' => true]);
+            }
             json_out(['ok' => true]);
             return;
 
-        case 'delete':
+        case 'remove': // tira só da biblioteca do usuário
+            Library::unlink((int) $user['id'], (int) ($input['id'] ?? 0));
+            json_out(['ok' => true]);
+            return;
+
+        case 'delete': // apaga o arquivo do servidor (só admin)
+            need($admin, 'Apenas o administrador apaga arquivos do servidor');
             Library::delete((int) ($input['id'] ?? 0));
+            Audit::log((int) $user['id'], 'track.delete', (int) ($input['id'] ?? 0));
             json_out(['ok' => true]);
             return;
 
         case 'lyrics':
             $t = Library::get((int) ($_GET['id'] ?? 0));
-            if (!$t) {
+            if (!$t || !Library::canAccess($user, (int) $t['id'])) {
                 json_out(['error' => 'not found'], 404);
                 return;
             }
@@ -168,9 +294,241 @@ try {
             json_out(['synced' => $t['lyrics_synced'], 'plain' => $t['lyrics_plain']]);
             return;
 
+        /* ===== Pagamentos ===== */
+        case 'pay_create':
+            json_out(['payment' => Payments::create($user, $input)]);
+            return;
+
+        case 'pay_status':
+            $p = Db::one('SELECT * FROM payments WHERE id = ?', [(int) ($_GET['id'] ?? 0)]);
+            need($p && ((int) $p['account_id'] === (int) $user['id'] || $admin), 'Pagamento não encontrado');
+            session_write_close();
+            json_out(['payment' => Payments::publicRow(Payments::refresh($p))]);
+            return;
+
+        case 'payments':
+            json_out(['payments' => Payments::list($user)]);
+            return;
+    }
+
+    /* ======================= Painel (admin / revendas) ======================= */
+    need($panel, 'Área restrita a revendas e administradores');
+
+    switch ($action) {
+        case 'dashboard':
+            $scope = $admin ? "role <> 'admin'" : 'path LIKE ' . Db::pdo()->quote($user['path'] . $user['id'] . '/%');
+            $now = time();
+            $count = fn(string $w) => (int) (Db::one("SELECT COUNT(*) c FROM accounts WHERE $scope AND $w")['c'] ?? 0);
+            $recv = $admin ? 0 : (int) $user['id'];
+            $month = strtotime(date('Y-m-01'));
+            $series = [];
+            for ($i = 13; $i >= 0; $i--) {
+                $d0 = strtotime("today -$i days");
+                $series[] = [
+                    'day' => date('d/m', $d0),
+                    'signups' => $count("created_at >= $d0 AND created_at < " . ($d0 + 86400)),
+                    'revenue' => (float) (Db::one('SELECT COALESCE(SUM(amount),0) s FROM payments WHERE status = \'approved\' AND receiver_id = ? AND approved_at >= ? AND approved_at < ?', [$recv, $d0, $d0 + 86400])['s'] ?? 0),
+                ];
+            }
+            if ($admin) {
+                Payments::refreshPending();
+            }
+            $expiring = Db::all("SELECT * FROM accounts WHERE $scope AND expires_at > ? AND expires_at <= ? ORDER BY expires_at LIMIT 12", [$now, $now + 7 * 86400]);
+            json_out([
+                'users' => $count("role = 'user'"),
+                'active' => $count("role = 'user' AND status = 'active' AND (expires_at IS NULL OR expires_at > $now)"),
+                'expired' => $count("role = 'user' AND expires_at IS NOT NULL AND expires_at <= $now"),
+                'trials' => $count("role = 'user' AND is_trial = 1 AND expires_at > $now"),
+                'expiring' => $count("expires_at > $now AND expires_at <= " . ($now + 7 * 86400)),
+                'resellers' => $count("role = 'reseller'"),
+                'masters' => $count("role = 'master'"),
+                'credits' => $admin ? null : (int) $user['credits'],
+                'credits_out' => (int) (Db::one("SELECT COALESCE(SUM(credits),0) s FROM accounts WHERE $scope")['s'] ?? 0),
+                'revenue_month' => (float) (Db::one("SELECT COALESCE(SUM(amount),0) s FROM payments WHERE status = 'approved' AND receiver_id = ? AND approved_at >= ?", [$recv, $month])['s'] ?? 0),
+                'series' => $series,
+                'expiring_list' => array_map([Account::class, 'publicRow'], $expiring),
+                'tracks' => $admin ? (int) (Db::one('SELECT COUNT(*) c FROM tracks')['c'] ?? 0) : null,
+                'storage' => $admin ? (int) (Db::one('SELECT COALESCE(SUM(size),0) s FROM tracks')['s'] ?? 0) : null,
+                'disk_free' => $admin ? @disk_free_space(storage_path()) : null,
+                'jobs_pending' => $admin ? Jobs::pendingCount() : null,
+                'tools' => $admin ? ['ytdlp' => (bool) Tools::ytdlp(), 'ffmpeg' => (bool) Tools::ffmpeg()] : null,
+            ]);
+            return;
+
+        case 'accounts':
+            json_out(['accounts' => Account::list($user, $_GET)]);
+            return;
+
+        case 'account_save':
+            if (!empty($input['id'])) {
+                Account::update($user, (int) $input['id'], $input);
+                $id = (int) $input['id'];
+            } else {
+                $id = Account::create($user, $input);
+            }
+            json_out(['ok' => true, 'id' => $id, 'me' => Account::publicRow(Account::find((int) $user['id']))]);
+            return;
+
+        case 'account_renew':
+            Account::renew($user, (int) ($input['id'] ?? 0), (int) ($input['plan_id'] ?? 0), (int) ($input['periods'] ?? 1));
+            json_out(['ok' => true, 'me' => Account::publicRow(Account::find((int) $user['id']))]);
+            return;
+
+        case 'account_credits':
+            Account::transfer($user, (int) ($input['id'] ?? 0), (int) ($input['amount'] ?? 0));
+            json_out(['ok' => true, 'me' => Account::publicRow(Account::find((int) $user['id']))]);
+            return;
+
+        case 'account_delete':
+            Account::delete($user, (int) ($input['id'] ?? 0));
+            json_out(['ok' => true]);
+            return;
+
+        case 'impersonate':
+            Auth::impersonate($user, (int) ($input['id'] ?? 0));
+            json_out(['ok' => true, 'csrf' => Auth::csrf()]);
+            return;
+
+        case 'plans':
+            json_out(['plans' => array_map(fn($p) => Plans::publicRow($p), Plans::all(!$admin))]);
+            return;
+
+        case 'plan_save':
+            need($admin);
+            json_out(['ok' => true, 'id' => Plans::save($input)]);
+            return;
+
+        case 'plan_delete':
+            need($admin);
+            Plans::delete((int) ($input['id'] ?? 0));
+            json_out(['ok' => true]);
+            return;
+
+        case 'settings':
+            $s = Account::settings($user);
+            $out = [
+                'mine' => [
+                    'brand' => ($s['brand'] ?? []) + ['logo_url' => !empty($s['brand']['logo']) ? Brand::logoUrl('acc' . $user['id'], $s['brand']['logo']) : ''],
+                    'mp_token' => mask((string) ($s['mp']['token'] ?? '')),
+                    'prices' => $s['prices'] ?? new stdClass(),
+                    'signup' => $s['signup'] ?? true,
+                    'can_brand' => (bool) $user['can_brand'],
+                    'reseller_mp' => Settings::get('reseller_mp') === '1',
+                ],
+                'webhook' => Settings::baseUrl() . 'api.php?action=mp_webhook&r=' . ($admin ? 0 : (int) $user['id']),
+            ];
+            if ($admin) {
+                $g = Settings::all();
+                $g['mp_access_token'] = mask($g['mp_access_token']);
+                $g['logo_url'] = $g['brand_logo'] ? Brand::logoUrl('global', $g['brand_logo']) : '';
+                $out['global'] = $g;
+            }
+            json_out($out);
+            return;
+
+        case 'settings_save':
+            need($admin);
+            $vals = (array) ($input['global'] ?? []);
+            if (isset($vals['mp_access_token']) && str_contains((string) $vals['mp_access_token'], '•')) {
+                unset($vals['mp_access_token']); // não alterado
+            }
+            foreach (['brand_color', 'brand_color2'] as $c) {
+                if (isset($vals[$c]) && !preg_match('/^#[0-9a-f]{6}$/i', (string) $vals[$c])) {
+                    unset($vals[$c]);
+                }
+            }
+            unset($vals['brand_logo']);
+            Settings::set($vals);
+            Audit::log((int) $user['id'], 'settings.save', 0, implode(', ', array_keys($vals)));
+            json_out(['ok' => true]);
+            return;
+
+        case 'my_settings_save':
+            need($reseller, 'Use as configurações globais');
+            $s = Account::settings($user);
+            $in = (array) ($input['mine'] ?? []);
+            if ((int) $user['can_brand'] && isset($in['brand'])) {
+                $b = (array) $in['brand'];
+                $s['brand'] = [
+                    'name' => mb_substr(trim((string) ($b['name'] ?? '')), 0, 40),
+                    'tagline' => mb_substr(trim((string) ($b['tagline'] ?? '')), 0, 80),
+                    'color' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($b['color'] ?? '')) ? $b['color'] : '#8b5cf6',
+                    'color2' => preg_match('/^#[0-9a-f]{6}$/i', (string) ($b['color2'] ?? '')) ? $b['color2'] : '#22d3ee',
+                    'support_url' => filter_var($b['support_url'] ?? '', FILTER_VALIDATE_URL) ? $b['support_url'] : '',
+                    'logo' => $s['brand']['logo'] ?? '',
+                ];
+            }
+            if (isset($in['mp_token']) && !str_contains((string) $in['mp_token'], '•')) {
+                $s['mp'] = ['token' => trim((string) $in['mp_token'])];
+            }
+            if (isset($in['prices'])) {
+                $s['prices'] = [];
+                foreach ((array) $in['prices'] as $pid => $price) {
+                    if ((float) $price > 0) {
+                        $s['prices'][(string) (int) $pid] = round((float) $price, 2);
+                    }
+                }
+            }
+            if (isset($in['signup'])) {
+                $s['signup'] = (bool) $in['signup'];
+            }
+            Account::saveSettings((int) $user['id'], $s);
+            Audit::log((int) $user['id'], 'settings.mine', 0);
+            json_out(['ok' => true]);
+            return;
+
+        case 'brand_upload':
+            $target = (string) ($_POST['target'] ?? 'mine');
+            if ($target === 'global') {
+                need($admin);
+                Settings::set(['brand_logo' => Brand::saveUpload($_FILES['logo'] ?? [], 'global')]);
+            } else {
+                need($reseller && (int) $user['can_brand'], 'Seu plano não permite marca própria');
+                $s = Account::settings($user);
+                $s['brand']['logo'] = Brand::saveUpload($_FILES['logo'] ?? [], 'acc' . $user['id']);
+                Account::saveSettings((int) $user['id'], $s);
+            }
+            json_out(['ok' => true]);
+            return;
+
+        case 'brand_logo_remove':
+            if (($input['target'] ?? '') === 'global') {
+                need($admin);
+                Settings::set(['brand_logo' => '']);
+            } else {
+                $s = Account::settings($user);
+                unset($s['brand']['logo']);
+                Account::saveSettings((int) $user['id'], $s);
+            }
+            json_out(['ok' => true]);
+            return;
+
+        case 'mp_test':
+            $token = trim((string) ($input['token'] ?? ''));
+            if ($token === '' || str_contains($token, '•')) {
+                $token = $admin && ($input['target'] ?? '') === 'global' ? Settings::get('mp_access_token') : (string) (Account::settings($user)['mp']['token'] ?? '');
+            }
+            json_out(['ok' => true, 'account' => MercadoPago::whoami($token)]);
+            return;
+
+        case 'logs':
+            if ($admin) {
+                $rows = Db::all('SELECT l.*, a.username actor, t.username target FROM audit l LEFT JOIN accounts a ON a.id = l.actor_id LEFT JOIN accounts t ON t.id = l.target_id ORDER BY l.id DESC LIMIT 300');
+            } else {
+                $rows = Db::all('SELECT l.*, a.username actor, t.username target FROM audit l LEFT JOIN accounts a ON a.id = l.actor_id LEFT JOIN accounts t ON t.id = l.target_id
+                    WHERE l.actor_id = ? OR a.path LIKE ? ORDER BY l.id DESC LIMIT 300', [$user['id'], $user['path'] . $user['id'] . '/%']);
+            }
+            json_out(['logs' => array_map(fn($r) => [
+                'id' => (int) $r['id'], 'action' => $r['action'], 'actor' => $r['actor'], 'target' => $r['target'],
+                'info' => $r['info'], 'ip' => $admin ? $r['ip'] : '', 'created_at' => (int) $r['created_at'],
+            ], $rows)]);
+            return;
+
         default:
             json_out(['error' => 'Ação desconhecida'], 404);
     }
+} catch (DomainException | InvalidArgumentException $e) {
+    json_out(['error' => $e->getMessage()], 422);
 } catch (Throwable $e) {
     json_out(['error' => $e->getMessage()], 500);
 }

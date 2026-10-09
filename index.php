@@ -8,9 +8,14 @@ if (!Auth::configured()) {
     header('Location: install.php');
     exit;
 }
-$logged = Auth::check();
+$user = Auth::user();
+$logged = $user !== null;
 $csrf = $logged ? Auth::csrf() : '';
-$app = htmlspecialchars((string) cfg('app_name'), ENT_QUOTES, 'UTF-8');
+$ref = preg_replace('/[^A-Za-z0-9._-]/', '', (string) ($_GET['r'] ?? ''));
+$brand = $logged ? Account::brand($user) + ['signup' => false, 'ref' => ''] : Account::publicBrand($ref);
+$h = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+$app = $h($brand['name']);
+$logo = $brand['logo'] !== '' ? $h($brand['logo']) : 'assets/icon.svg';
 $v = APP_VERSION;
 ?>
 <!doctype html>
@@ -19,11 +24,12 @@ $v = APP_VERSION;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0b12">
+<style>:root{--accent:<?= $h($brand['color']) ?>;--accent-2:<?= $h($brand['color2']) ?>;--brand:<?= $h($brand['color']) ?>}</style>
 <meta name="csrf" content="<?= $csrf ?>">
 <title><?= $app ?></title>
-<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="icon" href="<?= $logo ?>">
+<link rel="manifest" href="manifest.php<?= $ref !== '' ? '?r=' . $h($ref) : '' ?>">
+<link rel="apple-touch-icon" href="<?= $logo ?>">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -62,40 +68,86 @@ $v = APP_VERSION;
     <symbol id="i-expand" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 15 6-6 6 6"/></symbol>
     <symbol id="i-logout" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></g></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/></g></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></g></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></g></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></g></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-offline" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v7m0 0-3-3m3 3 3-3M8 17h8"/></g></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></g></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l1.9 5.6L19.5 9.5 13.9 11.4 12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></symbol>
   </defs>
 </svg>
 
 <div id="login" class="login">
   <form id="login-form" class="login-card">
-    <img src="assets/icon.svg" width="64" height="64" alt="">
+    <img src="<?= $logo ?>" class="brand-logo" width="64" height="64" alt="">
     <h1><?= $app ?></h1>
-    <p class="muted">Sua música. Seu servidor.</p>
+    <p class="muted"><?= $h($brand['tagline']) ?></p>
+    <input type="text" name="username" placeholder="Usuário" autocomplete="username" autocapitalize="none" required>
     <input type="password" name="password" placeholder="Senha" autocomplete="current-password" required>
     <button class="btn primary">Entrar</button>
     <p class="login-err" role="alert"></p>
+    <?php if ($brand['signup']): ?>
+      <button type="button" class="btn ghost sm" data-login-toggle>✨ Criar conta grátis — teste de <?= (int) $brand['trial_days'] ?> dia<?= $brand['trial_days'] > 1 ? 's' : '' ?></button>
+    <?php endif; ?>
+    <?php if ($brand['support_url']): ?><a class="muted small" href="<?= $h($brand['support_url']) ?>" target="_blank" rel="noopener">Precisa de ajuda? Fale com o suporte</a><?php endif; ?>
   </form>
+  <?php if ($brand['signup']): ?>
+  <form id="signup-form" class="login-card" hidden>
+    <img src="<?= $logo ?>" class="brand-logo" width="64" height="64" alt="">
+    <h1>Criar conta</h1>
+    <p class="muted">Teste grátis por <?= (int) $brand['trial_days'] ?> dia<?= $brand['trial_days'] > 1 ? 's' : '' ?>, sem cartão.</p>
+    <input type="hidden" name="ref" value="<?= $h($brand['ref']) ?>">
+    <input type="text" name="name" placeholder="Seu nome" required maxlength="80">
+    <input type="text" name="username" placeholder="Escolha um usuário" required pattern="[A-Za-z0-9._\-]{3,32}" autocapitalize="none" title="3 a 32 letras, números, ponto, _ ou -">
+    <input type="password" name="password" placeholder="Senha (mín. 6)" required minlength="6" autocomplete="new-password">
+    <input type="email" name="email" placeholder="E-mail (opcional)">
+    <input type="tel" name="phone" placeholder="WhatsApp (opcional)">
+    <button class="btn primary">Começar teste grátis</button>
+    <p class="login-err" role="alert"></p>
+    <button type="button" class="btn ghost sm" data-login-toggle>Já tenho conta</button>
+  </form>
+  <?php endif; ?>
 </div>
 
 <div id="app" class="app">
   <aside class="sidebar">
-    <a href="#/home" class="brand"><img src="assets/icon.svg" width="34" height="34" alt=""><span><?= $app ?></span></a>
+    <a href="#/home" class="brand"><img src="<?= $logo ?>" class="brand-logo" width="34" height="34" alt=""><span class="brand-name"><?= $app ?></span></a>
     <nav class="nav">
       <a href="#/home" data-nav="home"><svg><use href="#i-home"/></svg><span>Início</span></a>
       <a href="#/search" data-nav="search"><svg><use href="#i-search"/></svg><span>Buscar</span></a>
       <a href="#/library" data-nav="library"><svg><use href="#i-library"/></svg><span>Biblioteca</span></a>
       <a href="#/favorites" data-nav="favorites"><svg><use href="#i-heart"/></svg><span>Favoritas</span></a>
       <a href="#/downloads" data-nav="downloads"><svg><use href="#i-download"/></svg><span>Downloads</span><b class="badge" id="dl-badge" hidden>0</b></a>
+      <a href="#/offline" data-nav="offline" class="only-offline"><svg><use href="#i-offline"/></svg><span>Offline</span></a>
+      <a href="#/account" data-nav="account"><svg><use href="#i-user"/></svg><span>Minha conta</span></a>
     </nav>
+    <div class="panel-nav">
+      <div class="side-title">Painel</div>
+      <nav class="nav">
+        <a href="#/admin" data-nav="admin"><svg><use href="#i-chart"/></svg><span>Visão geral</span></a>
+        <a href="#/admin/accounts" data-nav="admin/accounts"><svg><use href="#i-users"/></svg><span>Contas</span></a>
+        <a href="#/admin/plans" data-nav="admin/plans" class="only-admin"><svg><use href="#i-tag"/></svg><span>Planos</span></a>
+        <a href="#/admin/payments" data-nav="admin/payments"><svg><use href="#i-card"/></svg><span>Pagamentos</span></a>
+        <a href="#/admin/settings" data-nav="admin/settings"><svg><use href="#i-gear"/></svg><span>Marca e config.</span></a>
+        <a href="#/admin/logs" data-nav="admin/logs"><svg><use href="#i-list"/></svg><span>Atividades</span></a>
+      </nav>
+    </div>
     <div class="side-title">Gêneros</div>
     <div class="side-genres" id="side-genres"></div>
     <div class="side-foot">
-      <a href="install.php" class="muted small">Ferramentas</a>
+      <a href="install.php" class="muted small only-admin">Ferramentas</a>
       <button class="icon-btn" data-action="logout" title="Sair"><svg><use href="#i-logout"/></svg></button>
     </div>
   </aside>
 
   <main class="main" id="main">
+    <div id="banners"></div>
     <div class="view" id="view"></div>
   </main>
 
@@ -136,6 +188,8 @@ $v = APP_VERSION;
     <a href="#/search" data-nav="search"><svg><use href="#i-search"/></svg><span>Buscar</span></a>
     <a href="#/library" data-nav="library"><svg><use href="#i-library"/></svg><span>Biblioteca</span></a>
     <a href="#/downloads" data-nav="downloads"><svg><use href="#i-download"/></svg><span>Downloads</span></a>
+    <a href="#/account" data-nav="account"><svg><use href="#i-user"/></svg><span>Conta</span></a>
+    <a href="#/admin" data-nav="admin" class="panel-only"><svg><use href="#i-chart"/></svg><span>Painel</span></a>
   </nav>
 </div>
 
@@ -184,7 +238,10 @@ $v = APP_VERSION;
 <div class="toasts" id="toasts"></div>
 <audio id="audio" preload="metadata"></audio>
 
-<script>window.APP = { name: <?= json_encode((string) cfg('app_name')) ?>, logged: <?= $logged ? 'true' : 'false' ?> };</script>
+<div class="modal-wrap" id="modal" hidden></div>
+<canvas id="confetti" aria-hidden="true"></canvas>
+<script>window.APP = { name: <?= json_encode($brand['name'], JSON_UNESCAPED_UNICODE) ?>, logged: <?= $logged ? 'true' : 'false' ?> };</script>
 <script src="assets/app.js?v=<?= $v ?>"></script>
+<script src="assets/admin.js?v=<?= $v ?>"></script>
 </body>
 </html>

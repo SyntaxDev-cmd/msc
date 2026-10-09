@@ -5,11 +5,31 @@ final class Jobs
 {
     public const SOURCES = ['itunes', 'youtube', 'jamendo'];
 
+    /** Garante os limites do plano antes de colocar algo na biblioteca do usuário */
+    private static function checkLimits(array $user, string $kind, bool $newDownload): void
+    {
+        if (Account::isAdmin($user)) {
+            return;
+        }
+        if ($kind === 'video' && !(int) $user['allow_video']) {
+            throw new DomainException('Seu plano não inclui vídeos');
+        }
+        $u = Account::usage($user);
+        if ((int) $user['max_tracks'] > 0 && $u['tracks'] >= (int) $user['max_tracks']) {
+            throw new DomainException("Sua biblioteca chegou ao limite de {$user['max_tracks']} músicas");
+        }
+        if ($newDownload && (int) $user['dl_per_day'] > 0 && $u['downloads_today'] >= (int) $user['dl_per_day']) {
+            throw new DomainException("Limite de {$user['dl_per_day']} downloads por dia atingido. Volta amanhã! 🙂");
+        }
+    }
+
     /**
-     * Coloca um item na fila — a menos que já exista na biblioteca ou já esteja na fila.
-     * @return array{status:string, track_id?:int, job_id?:int}
+     * Adiciona um item à biblioteca do usuário:
+     *  - exists: ele já tinha
+     *  - added:  já existia no servidor -> vinculado na hora (não gasta download)
+     *  - queued: entrou na fila de download
      */
-    public static function enqueue(array $item, string $kind): array
+    public static function enqueue(array $item, string $kind, array $user): array
     {
         $source = (string) ($item['source'] ?? '');
         $sid = (string) ($item['source_id'] ?? '');
@@ -26,58 +46,107 @@ final class Jobs
         $title = mb_substr(trim((string) ($item['title'] ?? '')), 0, 200);
         $artist = mb_substr(trim((string) ($item['artist'] ?? '')), 0, 200);
         $key = Text::key($artist, $title);
+        $uid = (int) $user['id'];
 
         $t = Library::findExisting($source, $sid, $kind, $key, $source === 'youtube' ? $sid : '');
         if ($t) {
-            return ['status' => 'exists', 'track_id' => (int) $t['id']];
+            if (Library::canAccess($user, (int) $t['id'])) {
+                return ['status' => 'exists', 'track_id' => (int) $t['id']];
+            }
+            self::checkLimits($user, $kind, false);
+            Library::link($uid, (int) $t['id']);
+            return ['status' => 'added', 'track_id' => (int) $t['id']];
         }
         $j = Db::one(
             "SELECT id FROM jobs WHERE kind = ? AND status IN ('queued','running') AND ((source = ? AND source_id = ?) OR dedup_key = ?)",
             [$kind, $source, $sid, $key]
         );
         if ($j) {
+            if (!Db::one('SELECT 1 FROM job_users WHERE job_id = ? AND user_id = ?', [$j['id'], $uid])) {
+                self::checkLimits($user, $kind, false);
+                Db::exec('INSERT OR IGNORE INTO job_users (job_id, user_id) VALUES (?, ?)', [$j['id'], $uid]);
+            }
             return ['status' => 'queued', 'job_id' => (int) $j['id']];
         }
+        self::checkLimits($user, $kind, true);
         $payload = array_intersect_key($item, array_flip(['title', 'artist', 'album', 'genre', 'year', 'duration', 'thumb', 'raw_title', 'channel']));
         $id = Db::insert('jobs', [
             'source' => $source, 'source_id' => $sid, 'kind' => $kind, 'dedup_key' => $key,
             'title' => $title, 'artist' => $artist, 'thumb' => mb_substr((string) ($item['thumb'] ?? ''), 0, 500),
-            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE), 'user_id' => $uid,
             'status' => 'queued', 'created_at' => time(), 'updated_at' => time(),
         ]);
+        Db::exec('INSERT OR IGNORE INTO job_users (job_id, user_id) VALUES (?, ?)', [$id, $uid]);
         return ['status' => 'queued', 'job_id' => $id];
     }
 
-    public static function list(int $limit = 100): array
+    /** Vincula a faixa pronta a todos que pediram */
+    public static function deliver(int $jobId, int $trackId): void
     {
-        return array_map(function ($j) {
-            return [
-                'id' => (int) $j['id'], 'source' => $j['source'], 'kind' => $j['kind'], 'title' => $j['title'],
-                'artist' => $j['artist'], 'thumb' => $j['thumb'], 'status' => $j['status'],
-                'progress' => round((float) $j['progress'], 1), 'message' => $j['message'],
-                'track_id' => $j['track_id'] ? (int) $j['track_id'] : null, 'updated_at' => (int) $j['updated_at'],
-            ];
-        }, Db::all('SELECT * FROM jobs ORDER BY CASE status WHEN \'running\' THEN 0 WHEN \'queued\' THEN 1 ELSE 2 END, updated_at DESC LIMIT ' . (int) $limit));
+        foreach (Db::all('SELECT user_id FROM job_users WHERE job_id = ?', [$jobId]) as $r) {
+            Library::link((int) $r['user_id'], $trackId);
+        }
     }
 
-    public static function pendingCount(): int
+    public static function list(array $user, int $limit = 100): array
     {
+        $order = " ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, j.updated_at DESC LIMIT " . (int) $limit;
+        $rows = Account::isAdmin($user)
+            ? Db::all('SELECT j.*, a.username FROM jobs j LEFT JOIN accounts a ON a.id = j.user_id' . $order)
+            : Db::all('SELECT j.*, NULL username FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ?' . $order, [$user['id']]);
+        return array_map(fn($j) => [
+            'id' => (int) $j['id'], 'source' => $j['source'], 'kind' => $j['kind'], 'title' => $j['title'],
+            'artist' => $j['artist'], 'thumb' => $j['thumb'], 'status' => $j['status'],
+            'progress' => round((float) $j['progress'], 1), 'message' => $j['message'],
+            'track_id' => $j['track_id'] ? (int) $j['track_id'] : null, 'updated_at' => (int) $j['updated_at'],
+            'username' => $j['username'],
+        ], $rows);
+    }
+
+    public static function pendingCount(?array $user = null): int
+    {
+        if ($user && !Account::isAdmin($user)) {
+            return (int) (Db::one("SELECT COUNT(*) c FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ? WHERE j.status IN ('queued','running')", [$user['id']])['c'] ?? 0);
+        }
         return (int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status IN ('queued','running')")['c'] ?? 0);
     }
 
-    public static function retry(int $id): void
+    private static function owns(array $user, int $id): bool
     {
-        Db::exec("UPDATE jobs SET status = 'queued', progress = 0, message = '', attempts = 0, updated_at = ? WHERE id = ? AND status = 'error'", [time(), $id]);
+        return Account::isAdmin($user) || (bool) Db::one('SELECT 1 FROM job_users WHERE job_id = ? AND user_id = ?', [$id, $user['id']]);
     }
 
-    public static function cancel(int $id): void
+    public static function retry(array $user, int $id): void
     {
-        Db::exec("DELETE FROM jobs WHERE id = ? AND status <> 'running'", [$id]);
+        if (self::owns($user, $id)) {
+            Db::exec("UPDATE jobs SET status = 'queued', progress = 0, message = '', attempts = 0, updated_at = ? WHERE id = ? AND status = 'error'", [time(), $id]);
+        }
     }
 
-    public static function clearFinished(): void
+    public static function cancel(array $user, int $id): void
     {
-        Db::exec("DELETE FROM jobs WHERE status IN ('done','error')");
+        if (!self::owns($user, $id)) {
+            return;
+        }
+        if (Account::isAdmin($user)) {
+            Db::exec('DELETE FROM job_users WHERE job_id = ?', [$id]);
+        } else {
+            Db::exec('DELETE FROM job_users WHERE job_id = ? AND user_id = ?', [$id, $user['id']]);
+        }
+        // ninguém mais esperando e não está rodando: remove
+        if (!Db::one('SELECT 1 FROM job_users WHERE job_id = ?', [$id])) {
+            Db::exec("DELETE FROM jobs WHERE id = ? AND status <> 'running'", [$id]);
+        }
+    }
+
+    public static function clearFinished(array $user): void
+    {
+        if (Account::isAdmin($user)) {
+            Db::exec("DELETE FROM job_users WHERE job_id IN (SELECT id FROM jobs WHERE status IN ('done','error'))");
+            Db::exec("DELETE FROM jobs WHERE status IN ('done','error')");
+            return;
+        }
+        Db::exec("DELETE FROM job_users WHERE user_id = ? AND job_id IN (SELECT id FROM jobs WHERE status IN ('done','error'))", [$user['id']]);
     }
 
     public static function update(int $id, array $fields): void

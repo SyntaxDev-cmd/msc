@@ -29,7 +29,12 @@
       credentials: 'same-origin',
     });
     const data = await r.json().catch(() => ({ error: 'Resposta inválida do servidor' }));
-    if (r.status === 401 && action !== 'login') { document.body.classList.add('logged-out'); throw new Error('Faça login'); }
+    if (r.status === 401 && !['login', 'signup'].includes(action)) { document.body.classList.add('logged-out'); throw new Error('Faça login'); }
+    if (r.status === 402) {
+      if (S.me) { S.me.user.expired = true; renderBanners(); }
+      if (currentRoute()[0] !== 'account') location.hash = '#/account';
+      throw new Error(data.message || 'Seu plano venceu');
+    }
     if (!r.ok || data.error) throw new Error(data.error || 'Erro ' + r.status);
     return data;
   }
@@ -40,11 +45,15 @@
     search: { q: '', source: 'youtube', items: [], loading: false, error: '', token: 0, limit: 25, fallback: false },
     filters: store.get('filters', { live: false, cover: false, long: false, missing: false }),
     dlKind: store.get('dlKind', 'audio'),
+    me: null, offlineMode: false,
   };
+  const money = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const dateFmt = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString('pt-BR') : '—');
 
   async function loadLibrary() {
     const { tracks } = await api('library');
     S.tracks = tracks;
+    store.set('lib', tracks);
     S.byId = new Map(tracks.map((t) => [t.id, t]));
     renderSidebarGenres();
   }
@@ -152,6 +161,7 @@
       if (this.idx + 1 >= this.queue.length) {
         if (this.repeat === 'all' || !auto) { this.idx = 0; } else { this.pause(); this.el.currentTime = 0; return; }
       } else this.idx++;
+      if (S.offlineMode && !Offline.has(this.queue[this.idx])) { if (this.queue.some((id) => Offline.has(id))) return this.next(auto); return; }
       this.load(true);
     },
     prev() {
@@ -267,7 +277,7 @@
   /* ======================= Cor dinâmica (extraída da capa) ======================= */
   const Accent = {
     from(t) {
-      if (!t.cover) return this.set(`hsl(${hue(t.artist)} 80% 62%)`);
+      if (!t.cover || !store.get('dynColor', true)) return this.set(S.me?.brand.color || `hsl(${hue(t.artist)} 80% 62%)`);
       const img = new Image();
       img.onload = () => {
         try {
@@ -466,7 +476,7 @@
       ${opt.queue ? '' : `<button class="trk-num" data-action="play-row"><span>${n}</span>${icon('play')}</button>`}
       ${opt.queue ? `<button class="trk-num" data-action="noop">${icon('play')}</button>` : ''}
       <div class="trk-cover">${cover}</div>
-      <div class="trk-main"><b>${esc(t.title)}${t.kind === 'video' ? '<span class="tag">vídeo</span>' : ''}</b>
+      <div class="trk-main"><b>${esc(t.title)}${t.kind === 'video' ? '<span class="tag">vídeo</span>' : ''}${Offline.has(t.id) ? `<span class="off-dot" title="Disponível offline">${icon('offline')}</span>` : ''}</b>
         <small><a href="#/artist/${encodeURIComponent(mainArtist(t.artist))}">${esc(t.artist)}</a></small></div>
       ${opt.queue ? '' : `<span class="trk-album"><a href="#/genre/${encodeURIComponent(t.genre)}">${esc(t.genre)}</a>${t.album ? ' · ' + esc(t.album) : ''}</span>
       <button class="icon-btn fav${t.favorite ? ' on' : ''}" data-action="fav" title="Favoritar">${icon(t.favorite ? 'heart-fill' : 'heart')}</button>`}
@@ -485,21 +495,27 @@
       <button class="mi" data-pop="enqueue">${icon('queue')}Adicionar à fila</button>
       <button class="mi" data-pop="artist">${icon('music')}Ir para ${esc(mainArtist(t.artist))}</button>
       <button class="mi" data-pop="fav">${icon(t.favorite ? 'heart-fill' : 'heart')}${t.favorite ? 'Remover dos favoritos' : 'Favoritar'}</button>
+      ${Offline.allowed() ? `<button class="mi${Offline.has(t.id) ? ' on' : ''}" data-pop="offline">${icon('offline')}${Offline.has(t.id) ? 'Remover do offline' : 'Disponível offline'}</button>` : ''}
       <button class="mi" data-pop="file">${icon('download')}Baixar arquivo (${fmtSize(t.size)})</button>
-      <button class="mi danger" data-pop="delete">${icon('trash')}Excluir do servidor</button>`, async (a) => {
+      ${t.owners === null || !isAdmin() ? `<button class="mi danger" data-pop="remove">${icon('trash')}Remover da minha biblioteca</button>` : ''}
+      ${isAdmin() ? `<button class="mi danger" data-pop="delete">${icon('trash')}Excluir do servidor${t.owners ? ` (${t.owners} usuário${t.owners > 1 ? 's' : ''})` : ''}</button>` : ''}`, async (a) => {
       closePop();
       if (a === 'next') P.playNext(t.id);
       if (a === 'enqueue') P.enqueue(t.id);
       if (a === 'artist') location.hash = '#/artist/' + encodeURIComponent(mainArtist(t.artist));
       if (a === 'fav') toggleFav(t);
       if (a === 'file') location.href = `stream.php?id=${t.id}&download=1`;
-      if (a === 'delete' && confirm(`Excluir "${t.title}" do servidor?`)) {
-        await api('delete', { body: { id: t.id } });
+      if (a === 'offline') { if (Offline.has(t.id)) { await Offline.remove([t.id]); toast('Removida do offline'); route(); } else Offline.save([t.id]); }
+      const removing = a === 'remove' && confirm(`Remover "${t.title}" da sua biblioteca?`);
+      const deleting = a === 'delete' && confirm(`Excluir "${t.title}" do servidor? Some da biblioteca de todos.`);
+      if (removing || deleting) {
+        await api(deleting ? 'delete' : 'remove', { body: { id: t.id } });
+        Offline.remove([t.id]);
         const wasCurrent = P.track?.id === t.id;
         P.queue = P.queue.filter((id) => id !== t.id);
         if (wasCurrent) { P.idx = Math.min(P.idx, P.queue.length - 1); P.pause(); if (P.track) P.load(false); else updateNowPlaying(); }
         else P.idx = P.queue.indexOf(P.track?.id);
-        await loadLibrary(); route(); toast('Excluída');
+        await loadLibrary(); route(); toast(deleting ? 'Excluída do servidor' : 'Removida da sua biblioteca');
       }
     });
   }
@@ -517,11 +533,16 @@
   const currentRoute = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/').map(decodeURIComponent);
 
   function route() {
-    const [name = 'home', a, b] = currentRoute();
-    $$('[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === (['genre', 'artist', 'all'].includes(name) ? 'library' : name)));
+    let [name = 'home', a, b] = currentRoute();
+    if (S.me?.user.expired && name !== 'account') { name = 'account'; history.replaceState(null, '', '#/account'); }
+    if (S.offlineMode && !['offline', 'account'].includes(name)) name = 'offline';
+    if (name === 'admin' && !S.me?.panel) name = 'home';
+    const navKey = ['genre', 'artist', 'all'].includes(name) ? 'library' : name === 'admin' ? (a ? `admin/${a}` : 'admin') : name;
+    $$('[data-nav]').forEach((n) => n.classList.toggle('active', n.dataset.nav === navKey));
     closePop();
-    const fn = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll }[name] || vHome;
-    fn(a, b);
+    const views = { home: vHome, search: vSearch, library: vLibrary, genre: vGenre, artist: vArtist, favorites: vFavorites, downloads: vDownloads, all: vAll, account: vAccount, offline: vOffline };
+    if (name === 'admin') Sonora.views.admin(a, b);
+    else (views[name] || vHome)(a, b);
     $('#main').scrollTop = 0;
   }
 
@@ -577,7 +598,7 @@
     view.innerHTML = `<div class="crumbs"><a href="#/library">Biblioteca</a> › <span>${esc(g)}</span></div>
       <div class="hero"><div class="art" style="background:${gradient(g)}"><div class="ph">${esc(g[0] || '?')}</div></div>
       <div class="meta"><div class="kicker">Gênero</div><h1 class="h1">${esc(g)}</h1><p class="sub">${list.length} faixas</p>
-      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button></div></div></div>
+      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div></div></div>
       <h2 class="h2">Artistas</h2><div class="grid">${artistsOf(g).map(artistCard).join('')}</div>
       <h2 class="h2">Faixas</h2>${trackList(list)}`;
   }
@@ -589,7 +610,7 @@
     view.innerHTML = `<div class="crumbs"><a href="#/library">Biblioteca</a> › <a href="#/genre/${encodeURIComponent(g)}">${esc(g)}</a> › <span>${esc(a)}</span></div>
       <div class="hero"><div class="art" style="border-radius:50%">${cover ? `<img src="${coverUrl(cover)}" alt="">` : `<div class="ph" style="background:${gradient(a)}">${esc(a[0] || '?')}</div>`}</div>
       <div class="meta"><div class="kicker">Artista · ${esc(g)}</div><h1 class="h1">${esc(a)}</h1><p class="sub">${list.length} faixas na sua biblioteca</p>
-      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>
+      <div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}
       <a class="btn" href="#/search?q=${encodeURIComponent(a)}&s=artist">${icon('search')} Buscar mais músicas</a></div></div></div>
       ${trackList(list)}`;
   }
@@ -619,7 +640,7 @@
     const list = S.tracks.filter((t) => t.favorite);
     view.innerHTML = `<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#ec4899)"><div class="ph" style="color:#fff">${icon('heart-fill')}</div></div>
       <div class="meta"><div class="kicker">Playlist</div><h1 class="h1">Favoritas</h1><p class="sub">${list.length} faixas</p>
-      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button></div>` : ''}</div></div>
+      ${list.length ? `<div class="row"><button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>${Offline.allowed() ? `<button class="btn" data-action="offline-list" title="Salvar no aparelho para ouvir sem internet">${icon('offline')} Offline</button>` : ''}</div>` : ''}</div></div>
       ${list.length ? trackList(list) : '<div class="empty"><h3>Nenhuma favorita ainda</h3><p>Toque no ♥ de uma música.</p></div>'}`;
   }
 
@@ -767,6 +788,7 @@
     const j = it.job?.[k];
     if (j && j.status === 'error') return `<span class="pill err" title="${esc(j.message)}"><span>Erro</span></span><button class="btn sm" data-action="dl">${icon('refresh')}</button>`;
     if (j) return `<span class="pill"><i style="width:${j.progress || 0}%"></i><span>${j.status === 'running' ? `${esc(j.message || 'Baixando')} ${Math.round(j.progress || 0)}%` : 'Na fila…'}</span></span>`;
+    if (it.server?.[k]) return `<button class="btn sm" data-action="dl" title="Já está no servidor: entra na hora, sem gastar download">${icon('bolt')} Adicionar</button>`;
     return `<button class="btn sm" data-action="dl">${icon('download')} Baixar</button>`;
   }
   function syncResultsWithJobs() {
@@ -788,17 +810,19 @@
       const r = await api('download', { body: { kind: k, items } });
       r.results.forEach((res, i) => {
         const it = items[i];
-        if (res.status === 'exists') it.library[k] = res.track_id;
+        if (res.status === 'exists' || res.status === 'added') it.library[k] = res.track_id;
         if (res.status === 'queued') it.job[k] = { id: res.job_id, status: 'queued', progress: 0 };
       });
       S.jobs = r.jobs || S.jobs;
       renderResults();
       const parts = [];
       if (r.queued) parts.push(`${r.queued} na fila`);
+      if (r.added) parts.push(`⚡ ${r.added} adicionada${r.added > 1 ? 's' : ''} na hora`);
       if (r.exists) parts.push(`${r.exists} já estavam na biblioteca`);
-      if (r.errors) parts.push(`${r.errors} com erro`);
+      if (r.errors) parts.push(r.errors === 1 && r.error_msg ? r.error_msg : `${r.errors} com erro: ${r.error_msg}`);
       toast(parts.join(' · ') || 'Nada a fazer', r.errors ? 'err' : 'ok');
-      if (r.exists) await loadLibrary();
+      if (r.exists || r.added) await loadLibrary();
+      if (r.added || r.queued) refreshMe().catch(() => {});
       setTimeout(() => pollJobs(), 1500);
     } catch (e) { toast(e.message, 'err'); }
   }
@@ -813,6 +837,283 @@
     if (!P.el.paused) P.pause();
     preview.src = url; preview.volume = Vol.value; preview.play().catch(() => {});
   }
+
+
+  /* ======================= Plataforma: conta, marca, pagamentos, offline ======================= */
+  const isAdmin = () => S.me?.user.role === 'admin';
+
+  async function refreshMe() {
+    S.me = await api('me');
+    CSRF = S.me.csrf || CSRF;
+    store.set('me', S.me);
+    applyBrand(S.me.brand);
+    document.body.classList.toggle('is-panel', !!S.me.panel);
+    document.body.classList.toggle('is-admin', isAdmin());
+    document.body.classList.toggle('no-offline', !Offline.allowed());
+    renderBanners();
+    return S.me;
+  }
+
+  function applyBrand(b) {
+    if (!b) return;
+    const root = document.documentElement.style;
+    root.setProperty('--brand', b.color); root.setProperty('--accent-2', b.color2);
+    if (!P.track || !store.get('dynColor', true)) root.setProperty('--accent', b.color);
+    APP.name = b.name;
+    $$('.brand-name').forEach((e) => (e.textContent = b.name));
+    $$('img.brand-logo').forEach((i) => (i.src = b.logo || 'assets/icon.svg'));
+    if (!P.track) document.title = b.name;
+  }
+
+  function renderBanners() {
+    const box = $('#banners'); if (!box || !S.me) return;
+    const u = S.me.user, out = [];
+    if (S.offlineMode) out.push(['info', `📴 Você está offline — tocando as ${S.tracks.length} músicas salvas no aparelho.`, '']);
+    if (S.me.impersonating) out.push(['warn', `👤 Você está acessando como <b>${esc(u.username)}</b>.`, `<button class="btn sm" data-action="stop-impersonate">Voltar à minha conta</button>`]);
+    if (u.expired) out.push(['err', '⛔ Seu plano venceu. Renove para voltar a ouvir e baixar.', S.me.plans.length ? `<button class="btn sm primary" data-action="renew">Renovar agora</button>` : '']);
+    else if (u.is_trial && u.days_left !== null) out.push(['info', `✨ Teste grátis — ${u.days_left < 1 ? 'termina hoje' : `faltam ${u.days_left} dia${u.days_left > 1 ? 's' : ''}`}. Gostou? Assine e não perca suas músicas.`, S.me.plans.length ? `<button class="btn sm primary" data-action="renew">Ver planos</button>` : '']);
+    else if (u.days_left !== null && u.days_left <= 5) out.push(['warn', `⏳ Seu plano vence ${u.days_left < 1 ? 'hoje' : `em ${u.days_left} dia${u.days_left > 1 ? 's' : ''}`} (${dateFmt(u.expires_at)}).`, S.me.plans.length ? `<button class="btn sm primary" data-action="renew">Renovar</button>` : '']);
+    if (S.me.panel && !isAdmin() && u.credits < 0) out.push(['err', `Seu saldo de créditos está negativo (${u.credits}). Compre créditos para regularizar.`, `<a class="btn sm" href="#/account">Comprar</a>`]);
+    box.innerHTML = out.map(([t, msg, act]) => `<div class="banner ${t}"><span>${msg}</span>${act}</div>`).join('');
+  }
+
+  /* ---------- Modal ---------- */
+  function formToObj(form) {
+    const o = Object.fromEntries(new FormData(form));
+    $$('input[type=checkbox]', form).forEach((c) => { if (c.name) o[c.name] = c.checked ? 1 : 0; });
+    return o;
+  }
+  function modal(html, { onSubmit, wide = false, onClose } = {}) {
+    const wrap = $('#modal');
+    wrap.innerHTML = `<div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+    wrap.hidden = false;
+    const close = () => { wrap.hidden = true; wrap.innerHTML = ''; wrap.onclick = null; onClose?.(); };
+    wrap.onclick = (e) => { if (e.target === wrap || e.target.closest('[data-close]')) close(); };
+    const form = $('form', wrap);
+    if (form && onSubmit) form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit]') || form.querySelector('button.primary');
+      if (btn) btn.disabled = true;
+      try { await onSubmit(formToObj(form), close, form); } catch (ex) { toast(ex.message, 'err'); } finally { if (btn) btn.disabled = false; }
+    });
+    setTimeout(() => wrap.querySelector('[autofocus], input:not([type=hidden]):not([type=checkbox]), select')?.focus(), 60);
+    return { el: wrap.firstElementChild, close };
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) { $('#modal').hidden = true; $('#modal').innerHTML = ''; } });
+
+  /* ---------- Confete 🎉 ---------- */
+  function confetti() {
+    const c = $('#confetti'), x = c.getContext('2d');
+    c.width = innerWidth; c.height = innerHeight; c.style.display = 'block';
+    const colors = [getComputedStyle(document.documentElement).getPropertyValue('--accent'), '#22d3ee', '#fbbf24', '#f472b6', '#34d399'];
+    const ps = Array.from({ length: 160 }, () => ({ x: Math.random() * c.width, y: -20 - Math.random() * c.height * 0.5, r: 4 + Math.random() * 5, vx: -2 + Math.random() * 4, vy: 2 + Math.random() * 4, a: Math.random() * 6, va: -0.2 + Math.random() * 0.4, c: colors[Math.floor(Math.random() * colors.length)] }));
+    const t0 = performance.now();
+    (function frame(t) {
+      x.clearRect(0, 0, c.width, c.height);
+      for (const p of ps) { p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.a += p.va; x.save(); x.translate(p.x, p.y); x.rotate(p.a); x.fillStyle = p.c; x.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); x.restore(); }
+      if (t - t0 < 3200) requestAnimationFrame(frame); else { x.clearRect(0, 0, c.width, c.height); c.style.display = 'none'; }
+    })(t0);
+  }
+
+  /* ---------- Pagamento (Pix com QR dentro do app, ou cartão/boleto) ---------- */
+  function openPay(opt) {
+    const u = S.me.user;
+    const m = modal(`<form class="pay">
+        <h3>${esc(opt.title)}</h3>
+        <div class="pay-amount">${money(opt.amount)}</div>
+        <p class="muted small">${esc(opt.desc || '')}</p>
+        <label class="fld"><span>E-mail para o comprovante</span><input type="email" name="email" required value="${esc(u.email || '')}" placeholder="voce@email.com"></label>
+        <div class="row" style="justify-content:center;margin-top:6px">
+          <button class="btn primary" name="method" value="pix" type="submit">${icon('bolt')} Pagar com Pix</button>
+          <button class="btn" type="button" data-pay-checkout>${icon('card')} Cartão ou boleto</button>
+        </div>
+        <p class="muted small" style="text-align:center;margin-top:12px">Pagamento processado pelo Mercado Pago. Liberação automática.</p>
+        <button type="button" class="icon-btn modal-x" data-close>${icon('close')}</button></form>`, {
+      onSubmit: async (d) => start('pix', d.email),
+    });
+    $('[data-pay-checkout]', m.el).addEventListener('click', () => {
+      const email = $('input[name=email]', m.el);
+      if (!email.reportValidity()) return;
+      const win = window.open('', '_blank'); // abre já no clique (evita bloqueio de pop-up)
+      start('checkout', email.value, win).catch((e) => { win?.close(); toast(e.message, 'err'); });
+    });
+    let timer = null, stopped = false;
+    const stop = () => { stopped = true; clearTimeout(timer); };
+    async function start(method, email, win) {
+      const { payment } = await api('pay_create', { body: { kind: opt.kind, plan_id: opt.plan_id, package: opt.package, method, email } });
+      if (method === 'checkout') {
+        if (win) win.location = payment.init_point; else location.href = payment.init_point;
+        waitScreen(payment, `<p>Finalize o pagamento na aba do Mercado Pago.</p><p class="muted small">Esta tela atualiza sozinha quando o pagamento for aprovado.</p>
+          <a class="btn" href="${esc(payment.init_point)}" target="_blank" rel="noopener">Abrir pagamento de novo</a>`);
+      } else {
+        waitScreen(payment, `<img class="qr" src="data:image/png;base64,${payment.qr_base64}" alt="QR Code Pix">
+          <p class="muted small">Abra o app do seu banco › Pix › Ler QR Code, ou copie o código:</p>
+          <div class="copy-row"><input readonly value="${esc(payment.qr_code)}"><button class="btn sm primary" type="button" data-copy>${icon('copy')} Copiar</button></div>`);
+        $('[data-copy]', m.el)?.addEventListener('click', async (e) => {
+          try { await navigator.clipboard.writeText(payment.qr_code); } catch { $('.copy-row input', m.el).select(); document.execCommand('copy'); }
+          e.target.closest('button').innerHTML = `${icon('check')} Copiado!`;
+        });
+      }
+    }
+    function waitScreen(payment, inner) {
+      m.el.innerHTML = `<div class="pay"><h3>${esc(opt.title)} · ${money(payment.amount)}</h3>${inner}
+        <div class="pay-wait"><span class="spinner"></span> Aguardando confirmação do pagamento…</div>
+        <button type="button" class="icon-btn modal-x" data-close>${icon('close')}</button></div>`;
+      $('#modal').onclick = (e) => { if (e.target.closest('[data-close]') || e.target === $('#modal')) { stop(); $('#modal').hidden = true; $('#modal').innerHTML = ''; } };
+      const started = Date.now();
+      const poll = async () => {
+        if (stopped) return;
+        try {
+          const { payment: p } = await api('pay_status', { params: { id: payment.id } });
+          if (p.status === 'approved') return success(p);
+          if (p.status === 'failed' || p.status === 'expired') { $('.pay-wait', m.el).innerHTML = '❌ Pagamento não aprovado. Tente novamente.'; return; }
+        } catch { /* rede instável: tenta de novo */ }
+        if (Date.now() - started < 60 * 60 * 1000) timer = setTimeout(poll, 4000);
+      };
+      timer = setTimeout(poll, 4000);
+    }
+    async function success(p) {
+      stop();
+      m.el.innerHTML = `<div class="pay"><div class="pay-ok">${icon('check')}</div><h3>Pagamento aprovado!</h3>
+        <p>${p.kind === 'credits' ? `+${p.qty} créditos adicionados à sua conta.` : 'Seu plano foi renovado. Boa música! 🎶'}</p>
+        <button class="btn primary" data-close>Continuar</button></div>`;
+      confetti();
+      await refreshMe();
+      if (p.kind !== 'credits' && S.tracks.length === 0) await loadLibrary().catch(() => {});
+      route();
+    }
+  }
+
+  /* ---------- Offline: músicas guardadas no aparelho (Cache Storage + service worker) ---------- */
+  const MEDIA_CACHE = 'sonora-media-v1';
+  const Offline = {
+    ids: new Set(store.get('offline', [])),
+    supported: 'caches' in window && window.isSecureContext,
+    allowed() { return this.supported && S.me?.user.allow_offline !== false; },
+    url(id, cover) { return new URL(`stream.php?id=${id}${cover ? '&cover=1' : ''}`, location.href).href; },
+    has(id) { return this.ids.has(id); },
+    persist() { store.set('offline', [...this.ids]); },
+    async save(ids) {
+      if (!this.allowed()) return toast(this.supported ? 'Seu plano não inclui o modo offline' : 'O modo offline precisa de HTTPS', 'err');
+      try { await navigator.storage?.persist?.(); } catch { /* opcional */ }
+      const todo = ids.filter((id) => !this.ids.has(id) && S.byId.get(id));
+      if (!todo.length) return toast('Já está tudo disponível offline ✔');
+      const cache = await caches.open(MEDIA_CACHE);
+      let ok = 0, fail = 0;
+      toast(`Salvando ${todo.length} música${todo.length > 1 ? 's' : ''} no aparelho…`);
+      for (const id of todo) {
+        try {
+          const r = await fetch(this.url(id), { credentials: 'same-origin' });
+          if (!r.ok) throw new Error();
+          await cache.put(this.url(id), r);
+          if (S.byId.get(id).cover) { const rc = await fetch(this.url(id, true)); if (rc.ok) await cache.put(this.url(id, true), rc); }
+          this.ids.add(id); this.persist(); ok++;
+          $$(`.trk[data-id="${id}"] .trk-main b`).forEach((b) => { if (!b.querySelector('.off-dot')) b.insertAdjacentHTML('beforeend', `<span class="off-dot">${icon('offline')}</span>`); });
+        } catch { fail++; }
+      }
+      toast(`✔ ${ok} disponíve${ok > 1 ? 'is' : 'l'} offline${fail ? ` · ${fail} falharam (espaço?)` : ''}`, fail ? 'err' : 'ok');
+      if (currentRoute()[0] === 'offline') route();
+    },
+    async remove(ids) {
+      if (!this.supported) return;
+      const cache = await caches.open(MEDIA_CACHE);
+      for (const id of ids) { await cache.delete(this.url(id)); await cache.delete(this.url(id, true)); this.ids.delete(id); }
+      this.persist();
+    },
+    async clear() { if (this.supported) await caches.delete(MEDIA_CACHE); this.ids.clear(); this.persist(); },
+  };
+
+  async function vOffline() {
+    const list = S.tracks.filter((t) => Offline.has(t.id));
+    const size = list.reduce((s, t) => s + t.size, 0);
+    let est = null;
+    try { est = await navigator.storage?.estimate?.(); } catch { /* sem suporte */ }
+    view.innerHTML = `<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),var(--accent-2))"><div class="ph" style="color:#fff">${icon('offline')}</div></div>
+      <div class="meta"><div class="kicker">No seu aparelho</div><h1 class="h1">Offline</h1>
+      <p class="sub">${list.length} músicas · ${fmtSize(size)}${est?.quota ? ` · espaço livre ~${fmtSize(est.quota - est.usage)}` : ''}</p>
+      <div class="row">${list.length ? `<button class="btn primary" data-action="play-all">${icon('play')} Tocar</button><button class="btn" data-action="shuffle-all">${icon('shuffle')} Aleatório</button>` : ''}
+      ${!S.offlineMode && S.tracks.length ? `<button class="btn" id="off-favs">${icon('heart')} Salvar favoritas</button><button class="btn" id="off-all">${icon('offline')} Salvar tudo</button>` : ''}
+      ${list.length && !S.offlineMode ? `<button class="btn ghost" id="off-clear">${icon('trash')} Limpar</button>` : ''}</div></div></div>
+      ${!Offline.supported ? '<div class="banner warn"><span>O modo offline precisa que o site esteja em HTTPS (a Hostinger oferece SSL grátis).</span></div>' : ''}
+      ${list.length ? trackList(list) : `<div class="empty">${icon('offline')}<h3>Nada salvo ainda</h3><p>Em qualquer artista, gênero ou playlist toque em <b>Offline</b> — ou use o menu ⋯ de uma música.<br>Depois é só ouvir no avião, no metrô ou sem plano de dados. ✈️</p></div>`}`;
+    $('#off-favs')?.addEventListener('click', () => Offline.save(S.tracks.filter((t) => t.favorite).map((t) => t.id)));
+    $('#off-all')?.addEventListener('click', () => { const ids = S.tracks.map((t) => t.id); if (ids.length < 40 || confirm(`Salvar ${ids.length} músicas (${fmtSize(S.tracks.reduce((s, t) => s + t.size, 0))}) no aparelho?`)) Offline.save(ids); });
+    $('#off-clear')?.addEventListener('click', async () => { if (confirm('Remover todas as músicas salvas neste aparelho?')) { await Offline.clear(); route(); } });
+  }
+
+  /* ---------- Minha conta ---------- */
+  async function vAccount() {
+    if (!S.me) return;
+    const { user: u, usage, plans, packages, brand } = S.me;
+    const params = new URLSearchParams(location.hash.split('?')[1] || '');
+    const bar = (v, max) => `<div class="meter"><i style="width:${max ? Math.min(100, (v / max) * 100) : 0}%"></i></div>`;
+    const planDays = plans.find((p) => p.id === u.plan_id)?.days || 30;
+    view.innerHTML = `
+      <div class="hero"><div class="art avatar" style="background:${gradient(u.username)}"><div class="ph" style="color:#fff">${esc((u.name || u.username)[0].toUpperCase())}</div></div>
+        <div class="meta"><div class="kicker">${esc(u.role_label)}${u.is_trial ? ' · teste grátis' : ''}</div><h1 class="h1">${esc(u.name || u.username)}</h1>
+        <p class="sub">@${esc(u.username)}${u.email ? ' · ' + esc(u.email) : ''}</p>
+        <div class="row">${brand.support_url ? `<a class="btn" href="${esc(brand.support_url)}" target="_blank" rel="noopener">💬 Suporte</a>` : ''}
+        <button class="btn ghost" data-action="logout">${icon('logout')} Sair</button></div></div></div>
+      <div class="stats">
+        <div class="stat ${u.expired ? 'bad' : u.days_left !== null && u.days_left <= 5 ? 'warn' : ''}"><span>${u.expires_at ? (u.expired ? 'Venceu em' : 'Vence em') : 'Validade'}</span>
+          <b>${u.expires_at ? dateFmt(u.expires_at) : 'Sem vencimento'}</b>
+          ${u.expires_at && !u.expired ? `<span>${u.days_left < 1 ? 'vence hoje' : `faltam ${u.days_left} dias`}</span>${bar(Math.max(0, u.days_left), planDays)}` : ''}</div>
+        <div class="stat"><span>Plano</span><b>${esc(u.is_trial ? 'Teste grátis' : S.me.user.plan_name || '—')}</b><span>${u.allow_video ? '🎬 vídeos' : 'só áudio'} · ${u.allow_offline ? '📴 offline' : 'sem offline'}</span></div>
+        <div class="stat"><span>Downloads hoje</span><b>${usage.downloads_today}${u.dl_per_day ? ` / ${u.dl_per_day}` : ''}</b>${u.dl_per_day ? bar(usage.downloads_today, u.dl_per_day) : '<span>ilimitado</span>'}</div>
+        <div class="stat"><span>Minha biblioteca</span><b>${usage.tracks}${u.max_tracks ? ` / ${u.max_tracks}` : ''}</b>${u.max_tracks ? bar(usage.tracks, u.max_tracks) : '<span>ilimitada</span>'}</div>
+        ${S.me.panel && !isAdmin() ? `<div class="stat ${u.credits < 0 ? 'bad' : ''}"><span>Créditos</span><b>${u.credits}</b><span>1 crédito ≈ 1 mês de cliente</span></div>` : ''}
+      </div>
+      ${S.me.invite_url ? `<div class="toolbar"><span>🔗 <b>Seu link de convite</b> — quem se cadastrar ganha teste grátis e fica na sua conta:</span>
+        <input class="filter-input" readonly value="${esc(S.me.invite_url)}" style="flex:1;min-width:200px" id="invite"><button class="btn sm primary" id="invite-copy">${icon('copy')} Copiar</button></div>` : ''}
+      ${plans.length && !isAdmin() ? `<h2 class="h2">${u.expired ? 'Renove seu plano' : 'Renovar / mudar de plano'}</h2>
+        ${S.me.mp_enabled ? '' : '<p class="muted">Pagamento online indisponível no momento — fale com o suporte para renovar.</p>'}
+        <div class="plans" id="plans-grid">${plans.map((p) => `<div class="plan${p.highlight ? ' hot' : ''}">${p.highlight ? '<span class="plan-badge">Mais popular</span>' : ''}
+          <h3>${esc(p.name)}</h3><div class="price">${money(p.price)}</div><p class="muted small">${p.days} dias · ${money(p.price / Math.max(1, p.days / 30))}/mês</p>
+          <ul><li>${p.dl_per_day ? `${p.dl_per_day} downloads por dia` : 'Downloads ilimitados'}</li><li>${p.max_tracks ? `Até ${p.max_tracks.toLocaleString('pt-BR')} músicas` : 'Biblioteca ilimitada'}</li>
+          <li class="${p.allow_video ? '' : 'no'}">Vídeos</li><li class="${p.allow_offline ? '' : 'no'}">Ouvir offline</li><li>Letras, equalizador e mais</li></ul>
+          <button class="btn ${p.highlight ? 'primary' : ''}" data-plan="${p.id}" ${S.me.mp_enabled ? '' : 'disabled'}>${u.expired ? 'Renovar' : 'Assinar'}</button></div>`).join('')}</div>` : ''}
+      ${packages.length ? `<h2 class="h2">Comprar créditos</h2><div class="plans">${packages.map((k, i) => `<div class="plan"><h3>${k.qty} créditos</h3>
+          <div class="price">${money(k.price)}</div><p class="muted small">${money(k.price / k.qty)} por crédito</p><button class="btn" data-pkg="${i}">Comprar</button></div>`).join('')}</div>` : ''}
+      <h2 class="h2">Meus dados</h2>
+      <form class="card-form" id="profile">
+        <div class="grid2"><label class="fld"><span>Nome</span><input name="name" value="${esc(u.name)}" maxlength="80"></label>
+        <label class="fld"><span>E-mail</span><input type="email" name="email" value="${esc(u.email)}"></label>
+        <label class="fld"><span>WhatsApp</span><input name="phone" value="${esc(u.phone)}"></label></div>
+        <div class="grid2"><label class="fld"><span>Senha atual</span><input type="password" name="password_current" autocomplete="current-password"></label>
+        <label class="fld"><span>Nova senha</span><input type="password" name="password_new" minlength="6" autocomplete="new-password"></label></div>
+        <div class="row"><label class="switch"><input type="checkbox" id="dyn" ${store.get('dynColor', true) ? 'checked' : ''}><i></i> Cor do app acompanha a capa da música</label>
+        <span class="spacer"></span><button class="btn primary">Salvar</button></div>
+      </form>
+      <h2 class="h2">Pagamentos</h2><div id="my-pays"><div class="skeleton"></div></div>`;
+    $$('[data-plan]', view).forEach((b) => b.addEventListener('click', () => {
+      const p = plans.find((x) => x.id === +b.dataset.plan);
+      openPay({ kind: 'renew', plan_id: p.id, amount: p.price, title: `Plano ${p.name}`, desc: `${p.days} dias${u.expires_at && !u.expired ? ', somados ao tempo que você ainda tem' : ''}.` });
+    }));
+    $$('[data-pkg]', view).forEach((b) => b.addEventListener('click', () => {
+      const k = packages[+b.dataset.pkg];
+      openPay({ kind: 'credits', package: +b.dataset.pkg, amount: k.price, title: `${k.qty} créditos`, desc: 'Use para criar e renovar clientes.' });
+    }));
+    $('#invite-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(S.me.invite_url); } catch { $('#invite').select(); document.execCommand('copy'); } toast('Link copiado!', 'ok'); });
+    $('#dyn').addEventListener('change', (e) => { store.set('dynColor', e.target.checked); if (P.track) Accent.from(P.track); else applyBrand(S.me.brand); });
+    $('#profile').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api('profile_save', { body: formToObj(e.target) }); toast('Dados salvos', 'ok'); await refreshMe(); } catch (ex) { toast(ex.message, 'err'); }
+    });
+    try {
+      const { payments } = await api('payments');
+      const label = { pending: 'Aguardando', approved: 'Aprovado', failed: 'Recusado', expired: 'Expirado' };
+      $('#my-pays').innerHTML = payments.filter((p) => p.account_id === u.id).length ? `<div class="table">${payments.filter((p) => p.account_id === u.id).map((p) => `<div class="tr">
+        <span>#${p.id}</span><span>${p.kind === 'credits' ? `${p.qty} créditos` : `Plano ${esc(p.plan_name || '')}`}</span><span>${money(p.amount)}</span>
+        <span class="pill-s ${p.status}">${label[p.status] || p.status}</span><span class="muted">${dateFmt(p.created_at)}</span></div>`).join('')}</div>` : '<p class="muted">Nenhum pagamento ainda.</p>';
+    } catch { $('#my-pays').innerHTML = ''; }
+    if (params.get('pay')) {
+      const { payment } = await api('pay_status', { params: { id: params.get('pay') } }).catch(() => ({}));
+      if (payment?.status === 'approved') { confetti(); toast('Pagamento aprovado! 🎉', 'ok'); await refreshMe(); history.replaceState(null, '', '#/account'); vAccount(); }
+      else if (payment?.status === 'pending') toast('Pagamento em processamento — liberamos assim que o Mercado Pago confirmar.');
+    }
+  }
+
+  window.Sonora = { api, $, $$, esc, icon, toast, modal, formToObj, money, dateFmt, fmtSize, gradient, S, route, refreshMe, confetti, openPay, isAdmin, views: {} };
 
   /* ======================= Eventos globais ======================= */
   document.addEventListener('click', (e) => {
@@ -840,6 +1141,9 @@
       dl: () => { const it = S.search.items[+a.closest('.res').dataset.idx]; if (it) download([it]); },
       'download-all': () => {
         const k = S.dlKind, todo = visibleItems().filter((it) => !it.library?.[k] && !it.job?.[k]);
+        const u = S.me?.user, left = u && u.dl_per_day && !isAdmin() ? u.dl_per_day - S.me.usage.downloads_today : Infinity;
+        const fresh = todo.filter((it) => !it.server?.[k]).length;
+        if (fresh > left && !confirm(`Seu plano permite mais ${Math.max(0, left)} downloads hoje. As que já estão no servidor entram na hora; as demais vão parar no limite. Continuar?`)) return;
         if (todo.length > 15 && !confirm(`Baixar ${todo.length} ${k === 'video' ? 'vídeos' : 'músicas'}?`)) return;
         download(todo);
       },
@@ -849,7 +1153,10 @@
       'jobs-clear': async () => { await api('jobs_clear', { body: {} }); pollJobs(true); },
       'job-retry': async () => { await api('job_retry', { body: { id: +a.closest('[data-job]').dataset.job } }); pollJobs(true); },
       'job-cancel': async () => { await api('job_cancel', { body: { id: +a.closest('[data-job]').dataset.job } }); pollJobs(true); },
-      logout: async () => { await api('logout', { body: {} }).catch(() => {}); location.reload(); },
+      logout: async () => { await api('logout', { body: {} }).catch(() => {}); await Offline.clear().catch(() => {}); store.set('lib', []); store.set('player', null); location.replace('./'); },
+      'stop-impersonate': async () => { await api('stop_impersonate', { body: {} }); location.replace('./#/admin/accounts'); location.reload(); },
+      renew: () => { location.hash = '#/account'; setTimeout(() => $('#plans-grid')?.scrollIntoView({ behavior: 'smooth' }), 120); },
+      'offline-list': () => Offline.save(listIds()),
     };
     if (actions[act]) { e.preventDefault(); actions[act](); }
   });
@@ -889,25 +1196,57 @@
   /* ======================= Login / boot ======================= */
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const err = $('.login-err'); err.textContent = '';
+    const f = e.target, err = $('.login-err', f); err.textContent = '';
+    f.querySelector('button').disabled = true;
     try {
-      const r = await api('login', { body: { password: e.target.password.value } });
-      CSRF = r.csrf; document.body.classList.remove('logged-out'); boot();
-    } catch (ex) { err.textContent = ex.message; }
+      await api('login', { body: { username: f.username.value, password: f.password.value } });
+      location.replace('./' + location.hash); location.reload();
+    } catch (ex) { err.textContent = ex.message; f.querySelector('button').disabled = false; }
   });
+  $('#signup-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target, err = $('.login-err', f); err.textContent = '';
+    f.querySelector('button').disabled = true;
+    try {
+      await api('signup', { body: Object.fromEntries(new FormData(f)) });
+      store.set('welcome', 1);
+      location.replace('./#/search');
+    } catch (ex) { err.textContent = ex.message; f.querySelector('button').disabled = false; }
+  });
+  $$('[data-login-toggle]').forEach((b) => b.addEventListener('click', () => { $('#login-form').hidden = !$('#login-form').hidden; $('#signup-form').hidden = !$('#signup-form').hidden; }));
 
   async function boot() {
     try {
+      await refreshMe();
       S.status = await api('status');
-      await loadLibrary();
-    } catch (e) { if (!document.body.classList.contains('logged-out')) toast(e.message, 'err'); return; }
+      if (!S.me.user.expired) await loadLibrary();
+    } catch (e) {
+      if (document.body.classList.contains('logged-out')) return;
+      if (e instanceof TypeError && store.get('lib', []).length) return bootOffline();
+      toast(e.message, 'err'); return;
+    }
     Vol.ui(); Vol.set(Vol.value);
     P.restore(); updateNowPlaying();
     route();
-    pollJobs();
-    if (!S.status.download) toast('yt-dlp não instalado — abra Ferramentas para instalar', 'err', { label: 'Abrir', fn: () => (location.href = 'install.php') });
+    if (!S.me.user.expired) pollJobs();
+    if (store.get('welcome', 0)) { store.set('welcome', 0); confetti(); toast(`Bem-vindo(a)! Seu teste grátis começou 🎉`, 'ok'); }
+    if (isAdmin() && !S.status.download) toast('yt-dlp não instalado — abra Ferramentas para instalar', 'err', { label: 'Abrir', fn: () => (location.href = 'install.php') });
   }
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-  if (APP.logged) boot();
+  /* Sem internet: abre com a biblioteca salva e toca o que está offline */
+  function bootOffline() {
+    S.offlineMode = true;
+    S.me = store.get('me', null);
+    S.tracks = store.get('lib', []).filter((t) => Offline.has(t.id));
+    S.byId = new Map(S.tracks.map((t) => [t.id, t]));
+    document.body.classList.add('offline');
+    if (S.me) applyBrand(S.me.brand);
+    renderBanners(); renderSidebarGenres();
+    Vol.ui(); Vol.set(Vol.value); P.restore(); updateNowPlaying();
+    route();
+  }
+  window.addEventListener('online', () => { if (S.offlineMode) location.reload(); });
+
+  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+  document.addEventListener('DOMContentLoaded', () => { if (APP.logged) boot(); });
 })();

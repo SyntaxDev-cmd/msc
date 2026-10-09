@@ -8,7 +8,7 @@ $msg = '';
 $err = '';
 $configured = Auth::configured();
 
-if ($configured && !Auth::check()) {
+if ($configured && !Account::isAdmin(Auth::user())) {
     header('Location: ./');
     exit;
 }
@@ -24,10 +24,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     if ((string) $_POST['password'] !== (string) $_POST['password2']) {
                         throw new InvalidArgumentException('As senhas não conferem.');
                     }
-                    Auth::setPassword((string) $_POST['password']);
-                    Auth::attempt((string) $_POST['password']);
+                    if (Auth::configured()) {
+                        throw new DomainException('O administrador já existe.');
+                    }
+                    $u = trim((string) $_POST['username']);
+                    if (!preg_match('/^[A-Za-z0-9._-]{3,32}$/', $u) || mb_strlen((string) $_POST['password']) < 6) {
+                        throw new InvalidArgumentException('Usuário (3-32 letras/números) e senha (6+ caracteres) obrigatórios.');
+                    }
+                    $id = Db::insert('accounts', ['role' => 'admin', 'username' => $u, 'name' => 'Administrador', 'path' => '/',
+                        'password_hash' => password_hash((string) $_POST['password'], PASSWORD_DEFAULT), 'created_at' => time()]);
+                    Auth::loginAs($id);
                     $configured = true;
-                    $msg = 'Senha definida! Agora instale as ferramentas abaixo.';
+                    $msg = 'Administrador criado! Agora instale as ferramentas abaixo.';
                     break;
                 case 'ytdlp':
                     $msg = 'yt-dlp instalado: versão ' . Tools::installYtdlp();
@@ -83,14 +91,15 @@ $csrf = Auth::csrf();
     <?php if ($err): ?><div class="alert err"><?= $h($err) ?></div><?php endif; ?>
 
     <?php if (!$configured): ?>
-        <h2>1. Crie a senha de acesso</h2>
-        <p class="muted">Sua biblioteca fica protegida — só quem tem a senha ouve e baixa.</p>
+        <h2>1. Crie a conta de administrador</h2>
+        <p class="muted">Com ela você gerencia revendas, clientes, planos, pagamentos e a marca.</p>
         <form method="post" class="stack">
             <input type="hidden" name="csrf" value="<?= $h($csrf) ?>">
             <input type="hidden" name="do" value="password">
+            <input type="text" name="username" placeholder="Usuário (ex.: admin)" required pattern="[A-Za-z0-9._\-]{3,32}" autocomplete="username">
             <input type="password" name="password" placeholder="Senha (mín. 6 caracteres)" required minlength="6">
             <input type="password" name="password2" placeholder="Repita a senha" required minlength="6">
-            <button class="btn primary">Salvar senha</button>
+            <button class="btn primary">Criar administrador</button>
         </form>
     <?php else: ?>
         <h2>Verificação do servidor</h2>

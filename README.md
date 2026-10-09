@@ -47,7 +47,45 @@ storage/library/
 - **Instalável como app** no celular (PWA) — arraste para baixo para fechar o player.
 - Atalhos: `Espaço` play/pause · `←/→` ±5 s · `↑/↓` volume · `N`/`P` próxima/anterior · `S` aleatório · `R` repetir · `L` letra · `Q` fila · `F` favoritar · `M` mudo · `/` buscar.
 
-**Segurança** — login com senha (hash bcrypt), proteção CSRF, nenhum comando passa por shell (sem injeção), mídia e banco bloqueados para acesso direto.
+**Segurança** — login por usuário com hash bcrypt e bloqueio após tentativas erradas, proteção CSRF, permissões checadas no servidor em toda ação, cada cliente só acessa os arquivos da própria biblioteca, transações SQLite com trava de escrita para créditos, nenhum comando passa por shell (sem injeção), mídia e banco bloqueados para acesso direto.
+
+## 💼 Plataforma de revenda (v2)
+
+### Hierarquia e permissões
+```
+👑 Administrador ── vê e gerencia tudo, define planos, preços, marca e Mercado Pago
+ └─ 💎 Revenda Master ── cria revendas e clientes, distribui créditos
+     └─ 🏪 Revenda ── cria e renova clientes
+         └─ 🎧 Cliente ── ouve, busca e baixa dentro dos limites do plano
+```
+- Cada conta **só enxerga as contas abaixo dela** (uma revenda nunca vê clientes de outra).
+- **Créditos**: criar ou renovar um cliente custa os créditos do plano (ex.: Mensal = 1, Anual = 12). O admin emite créditos; masters repassam (e podem recolher) das revendas. Tudo fica registrado.
+- **Limites**: máximo de clientes e de revendas por árvore, testes grátis por dia, downloads por dia, músicas na biblioteca, vídeo sim/não e offline sim/não.
+- **Vencimento**: conta vencida só acessa “Minha conta” para renovar; faixas de aviso aparecem 5 dias antes e durante o teste grátis.
+- **Suporte**: “Entrar como” um cliente (com botão para voltar), bloquear/desbloquear, cartão de acesso pronto para enviar no WhatsApp.
+- **Log de atividades** de toda a rede (quem criou, renovou, transferiu créditos, recebeu pagamento).
+
+### Mercado Pago
+- **Pix com QR Code e copia-e-cola dentro do app** + **Checkout Pro** (cartão, boleto, saldo MP).
+- Liberação **automática**: webhook + consulta ativa de reserva (o pagamento é sempre conferido direto na API do MP, nunca confiamos no corpo da notificação). Processamento **idempotente** (um pagamento nunca renova duas vezes) e confere se o valor pago bate com o cobrado.
+- **Revendas podem receber no Mercado Pago delas**, com preços próprios: o cliente paga direto para a revenda e o sistema desconta os créditos do plano do saldo dela.
+- Revendas **compram créditos** em pacotes (ex.: `10=90`, `100=700`) definidos pelo admin.
+- Configure em **Painel › Marca e config.** (Access Token de produção em mercadopago.com.br/developers). O botão “Testar conexão” valida o token.
+
+### Marca (white-label)
+- Admin muda nome, slogan, cores, logo e link de suporte — o app inteiro, a tela de login e o **app instalado no celular** mudam junto.
+- **Masters e revendas podem ter a marca própria**: os clientes delas (e as sub-revendas) veem o app com o nome/logo/cores delas.
+- **Link de convite** `seusite.com/?r=usuario_da_revenda`: abre o login com a marca da revenda e permite **cadastro com teste grátis** que já cai na conta dela.
+
+### 📴 Ouvir offline
+- Botão **Offline** em qualquer artista, gênero, favoritas ou pelo menu ⋯ de uma música: guarda no aparelho (Cache Storage).
+- Sem internet o app abre sozinho no modo offline e toca as músicas salvas, **inclusive avançar/voltar** (o service worker responde pedidos de trecho/Range).
+- Página **Offline** mostra espaço usado/livre, “Salvar favoritas”, “Salvar tudo” e “Limpar”. Requer HTTPS (SSL grátis da Hostinger).
+
+### Acervo compartilhado, bibliotecas separadas
+Os arquivos ficam num acervo único no servidor (sem duplicar espaço), mas **cada cliente tem a sua biblioteca**,
+favoritas e contagem de reproduções. Se a música já existe no servidor, ela entra **na hora** para o cliente
+(⚡ “Adicionar”) **sem gastar download** do plano.
 
 ## 🔎 Repositórios / APIs pesquisados e usados
 
@@ -72,9 +110,11 @@ Tudo foi reimplementado em **PHP puro + SQLite + JavaScript sem build**, para ro
    - Na aba **Opções do PHP**, garanta que `proc_open` **não** está em `disable_functions`.
    - Recomendo `max_execution_time = 300` e `memory_limit = 256M`.
 3. Acesse `https://seudominio.com/install.php`:
-   - Crie sua **senha**.
+   - Crie o **usuário e a senha do administrador**.
    - Clique em **Instalar yt-dlp** (obrigatório), **Deno** (recomendado) e **ffmpeg** (opcional, para MP3/Opus).
-4. Abra `https://seudominio.com/` e pesquise! 🎉
+4. Abra `https://seudominio.com/`, entre como admin e vá em **Painel › Marca e config.** para colocar sua marca e o Access Token do Mercado Pago. Crie planos, revendas e clientes em **Contas**. 🎉
+
+> Atualizando da v1? Basta subir os arquivos: o banco é migrado sozinho e a senha antiga vira o usuário **admin**.
 
 > **Plano compartilhado x VPS:** os planos Premium/Business costumam permitir `proc_open`. Se o seu
 > bloquear, use um **VPS da Hostinger** (funciona 100%) — ou use só a fonte Jamendo, que baixa via cURL.
@@ -105,10 +145,12 @@ Atualizar o yt-dlp no `install.php` também resolve a maioria dos erros.
 
 ```
 index.php          interface (SPA)
-api.php            API JSON (busca, fila, biblioteca, letras)
+api.php            API JSON (busca, fila, biblioteca, letras, contas, pagamentos, webhook MP)
+brand.php          logos da marca · manifest.php  manifest PWA com a marca
+assets/admin.js    painel (visão geral, contas, planos, pagamentos, marca, atividades)
 stream.php         streaming com Range (áudio, vídeo, capas)
 install.php        verificação do servidor + instalação 1-clique das ferramentas
-worker.php         processador da fila via cron (opcional)
+worker.php         processador da fila + conferência de pagamentos pendentes via cron (opcional)
 src/               classes PHP (Db, YouTube, Metadata, Jobs, Worker, Library…)
 assets/            app.js, app.css, ícone
 storage/library/   suas músicas (Gênero/Artista/Música.ext)

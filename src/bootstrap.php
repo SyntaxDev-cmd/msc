@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
-define('APP_VERSION', '1.0.0');
+define('APP_VERSION', '2.0.0');
 
 $GLOBALS['APP_CFG'] = array_replace(
     require APP_ROOT . '/config.example.php',
@@ -28,7 +28,7 @@ foreach (['library', 'data', 'tmp', 'tmp/cache'] as $dir) {
     }
 }
 
-foreach (['Text', 'Db', 'Cache', 'Http', 'Sys', 'Tools', 'Auth', 'Metadata', 'YouTube', 'Jamendo', 'Library', 'Jobs', 'Worker'] as $class) {
+foreach (['Text', 'Db', 'Cache', 'Http', 'Sys', 'Tools', 'Settings', 'Account', 'Auth', 'MercadoPago', 'Payments', 'Metadata', 'YouTube', 'Jamendo', 'Library', 'Jobs', 'Worker'] as $class) {
     require_once __DIR__ . '/' . $class . '.php';
 }
 
@@ -88,4 +88,12 @@ function start_session(): void
     ]);
     ini_set('session.gc_maxlifetime', (string) (60 * 60 * 24 * 30));
     session_start();
+}
+
+function client_ip(): string
+{
+    // Só REMOTE_ADDR: cabeçalhos como X-Forwarded-For podem ser forjados para burlar o limite de login.
+    // (O LiteSpeed da Hostinger já coloca o IP real do visitante aqui.)
+    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
 }

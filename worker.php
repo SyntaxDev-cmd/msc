@@ -11,5 +11,6 @@ if (PHP_SAPI !== 'cli') {
 }
 require __DIR__ . '/src/bootstrap.php';
 
+Payments::refreshPending(); // reserva caso algum webhook do Mercado Pago se perca
 $n = Worker::run(280);
 echo date('c') . " processados: {$n}\n";
