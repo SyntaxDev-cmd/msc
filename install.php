@@ -88,10 +88,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         $diag[] = [false, 'Catálogo de artista (YouTube Music)', $e->getMessage()];
                     }
                     if (Tools::ytdlp()) {
-                        $try = function (string $clients) use ($vid): array {
+                        $try = function (string $clients, string $proxy = '') use ($vid): array {
+                            $proxy = $proxy !== '' ? $proxy : Settings::get('yt_proxy');
                             $cmd = array_merge(Tools::ytdlp(), ['--ignore-config', '--no-warnings', '--no-playlist', '--simulate', '-f', 'bestaudio/best', '--print', '%(title)s'],
                                 is_file(storage_path('data/cookies.txt')) ? ['--cookies', storage_path('data/cookies.txt')] : [],
-                                Settings::get('yt_proxy') !== '' ? ['--proxy', Settings::get('yt_proxy')] : [],
+                                $proxy !== '' ? ['--proxy', $proxy] : [],
                                 $clients !== '' ? ['--extractor-args', 'youtube:player_client=' . $clients] : [],
                                 ['https://www.youtube.com/watch?v=' . $vid]);
                             try {

@@ -160,8 +160,18 @@
       updateNowPlaying();
       this.save();
     },
-    play() {
-      if (!this.track) { const all = S.tracks.map((t) => t.id); if (all.length) this.playList(all, 0); return; }
+    async play() {
+      if (!this.track) {
+        let ids = S.tracks.map((t) => t.id);
+        if (!ids.length && !S.offlineMode) {
+          // biblioteca vazia: toca o que já existe no acervo do servidor
+          try { const d = await api('explore'); ids = addTracks([...d.recent, ...d.top]).map((t) => t.id); } catch { /* sem rede */ }
+        }
+        if (ids.length) return this.playList([...new Set(ids)], 0);
+        toast(S.pending ? 'Suas músicas ainda estão baixando — acompanhe em Downloads' : 'Nenhuma música pronta ainda. Busque e baixe uma música primeiro.', 'err',
+          { label: S.pending ? 'Ver downloads' : 'Buscar', fn: () => (location.hash = S.pending ? '#/downloads' : '#/search') });
+        return;
+      }
       Viz.ensure();
       this.el.play().catch((e) => { if (e.name !== 'AbortError') toast('Toque no play para iniciar', ''); });
     },

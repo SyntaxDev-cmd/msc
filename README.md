@@ -165,6 +165,9 @@ Use **install.php › Testar YouTube** para ver o que está funcionando no seu s
 Se o download direto falhar, o teste faz um **auto-ajuste**: tenta o yt-dlp se apresentando como outros
 “aplicativos” do YouTube (TV, celular, player embutido…) e salva o primeiro que não for bloqueado.
 
+**Reserva por uso (Apify):** cole um token da [Apify](https://apify.com) (há crédito grátis mensal) em
+**Painel › Marca e config. › Download do YouTube**; o ator padrão é `myagizm/youtube-mp3-downloader`.
+
 **Solução mais garantida contra o bloqueio:** a API [youtube-mp36](https://rapidapi.com/ytjar/api/youtube-mp36)
 (RapidAPI, tem plano grátis) converte para MP3 no servidor dela — o seu servidor só recebe o arquivo pronto.
 Crie a conta, assine o plano Basic, copie a **X-RapidAPI-Key** e cole em

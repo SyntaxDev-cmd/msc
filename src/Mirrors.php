@@ -118,6 +118,29 @@ final class Mirrors
         return "HTTP {$code}: respondeu " . ($type ?: 'conteúdo desconhecido') . ' em vez do áudio';
     }
 
+    /** Procura o link do áudio em qualquer formato de resposta (campos download/mp3/audio/link/url) */
+    public static function findLink($node, int $depth = 0): ?string
+    {
+        if ($depth > 8 || !is_array($node)) {
+            return null;
+        }
+        $fallback = null;
+        foreach ($node as $k => $v) {
+            if (is_string($v) && preg_match('#^https?://#', $v) && !preg_match('#youtube\.com|youtu\.be|ytimg|\.(jpe?g|png|webp)(\?|$)#i', $v)) {
+                if (is_string($k) && preg_match('/download|mp3|audio|file|link/i', $k)) {
+                    return $v;
+                }
+                $fallback ??= is_string($k) && preg_match('/url/i', $k) ? $v : null;
+            }
+        }
+        foreach ($node as $v) {
+            if (is_array($v) && ($found = self::findLink($v, $depth + 1))) {
+                return $found;
+            }
+        }
+        return $fallback;
+    }
+
     /** Confere a "assinatura" do arquivo (evita salvar página de erro como música) */
     public static function looksLikeMedia(string $file): bool
     {
@@ -186,6 +209,37 @@ final class Mirrors
             }
         }
 
+        // 0b) Apify (ator "YouTube to MP3") — também converte fora do seu servidor
+        $apify = trim(Settings::get('apify_token'));
+        if ($apify !== '' && !$video) {
+            try {
+                $tries++;
+                $progress(2, 'Convertendo na Apify');
+                $actor = str_replace('/', '~', trim(Settings::get('apify_actor')) ?: 'myagizm/youtube-mp3-downloader');
+                $url = "https://www.youtube.com/watch?v={$id}";
+                // envia o link nos nomes de campo mais comuns dos atores (os que o ator não usa são ignorados)
+                $input = ['urls' => [$url], 'videoUrls' => [$url], 'youtubeUrls' => [$url], 'startUrls' => [['url' => $url]], 'url' => $url, 'videoUrl' => $url, 'format' => 'mp3'];
+                $ch = curl_init('https://api.apify.com/v2/acts/' . rawurlencode($actor) . '/run-sync-get-dataset-items?timeout=240&token=' . rawurlencode($apify));
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 260,
+                    CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_POSTFIELDS => json_encode($input)]);
+                $resp = (string) curl_exec($ch);
+                $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                $items = json_decode($resp, true);
+                if ($code >= 400 || !is_array($items)) {
+                    throw new RuntimeException("HTTP {$code} " . mb_substr((string) ($items['error']['message'] ?? $resp), 0, 150));
+                }
+                $link = self::findLink($items);
+                if (!$link) {
+                    throw new RuntimeException('o ator não devolveu link de áudio');
+                }
+                self::fetch($link, $raw, $progress, 'Baixando (Apify)');
+                $log[] = '✔ Apify ' . $actor;
+                return $done();
+            } catch (Throwable $e) {
+                $log[] = '✖ Apify: ' . $e->getMessage();
+            }
+        }
+
         // 1) Cobalt (servidor configurado pelo admin)
         $cobalt = rtrim(Settings::get('cobalt_url'), '/');
         if ($cobalt !== '') {
@@ -214,7 +268,7 @@ final class Mirrors
 
         // 2) Invidious: itag 140 = áudio AAC 128k (m4a) · itag 18 = vídeo mp4 360p com áudio
         foreach (self::invidious() as $inst) {
-            if ($tries >= 8) {
+            if ($tries >= 6) {
                 break;
             }
             try {
@@ -231,7 +285,7 @@ final class Mirrors
 
         // 3) Piped
         foreach (self::piped() as $api) {
-            if ($tries >= 12) {
+            if ($tries >= 9) {
                 break;
             }
             try {

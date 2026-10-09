@@ -32,6 +32,8 @@ final class Settings
             'yt_proxy' => '',
             'yt_clients' => '',
             'rapidapi_key' => '',
+            'apify_token' => '',
+            'apify_actor' => 'myagizm/youtube-mp3-downloader',
             'referral_enabled' => '1',
             'referral_new_pct' => '10',
             'referral_reward_pct' => '20',
