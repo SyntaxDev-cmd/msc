@@ -1,0 +1,28 @@
+Options -Indexes
+DirectoryIndex index.php
+
+# Bloqueia acesso direto ao código, ferramentas, banco e arquivos de mídia
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(src|bin|storage)(/|$) - [F,L]
+    RewriteRule ^(config\.php|config\.example\.php|worker\.php|README\.md)$ - [F,L]
+    RewriteRule (^|/)\.git - [F,L]
+</IfModule>
+
+<FilesMatch "^(config\.php|config\.example\.php|worker\.php)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml application/manifest+json
+</IfModule>
+
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>

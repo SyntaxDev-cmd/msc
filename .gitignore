@@ -1,0 +1,9 @@
+/config.php
+/storage/library/*
+!/storage/library/.gitkeep
+/storage/data/*
+!/storage/data/.gitkeep
+/storage/tmp/*
+!/storage/tmp/.gitkeep
+/bin/*
+!/bin/.htaccess
