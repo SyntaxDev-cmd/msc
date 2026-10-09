@@ -69,7 +69,7 @@ public class MainActivity extends ComponentActivity {
 
     static MainActivity current;
 
-    private WebView web;
+    private KeepAliveWebView web;
     private FrameLayout root;
     private View offlineView;
     private ProgressBar progress;
@@ -107,7 +107,7 @@ public class MainActivity extends ComponentActivity {
         wic.setAppearanceLightStatusBars(false);
         wic.setAppearanceLightNavigationBars(false);
 
-        web = new WebView(this);
+        web = new KeepAliveWebView(this);
         web.setBackgroundColor(ContextCompat.getColor(this, R.color.bg));
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -414,6 +414,12 @@ public class MainActivity extends ComponentActivity {
     void runJs(String js) {
         ui.post(() -> {
             if (web != null) web.evaluateJavascript(js, null);
+        });
+    }
+
+    void setKeepAlive(boolean k) {
+        ui.post(() -> {
+            if (web != null) web.setKeepAlive(k);
         });
     }
 

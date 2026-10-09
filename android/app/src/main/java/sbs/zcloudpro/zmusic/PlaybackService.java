@@ -39,8 +39,8 @@ import java.net.URL;
  * Quem toca de verdade é o player do site, dentro da WebView; aqui só espelhamos o estado
  * e repassamos os botões (play/pausa/próxima/anterior/arrastar) para ele.
  *
- * Músicas tocadas pelo player do YouTube NÃO usam este serviço (os termos do YouTube não
- * permitem tocar em segundo plano) — o site pausa essas músicas quando o app vai para o fundo.
+ * Músicas do player do YouTube só usam este serviço quando o administrador liga
+ * "YouTube em segundo plano no app" (o site manda bg=true); senão o site as pausa no fundo.
  */
 public class PlaybackService extends Service {
 
@@ -60,7 +60,11 @@ public class PlaybackService extends Service {
     private JSONObject state = new JSONObject();
     private String artUrl = "";
     private Bitmap art;
-    private final Runnable idleStop = this::stopSelf;
+    private final Runnable idleStop = () -> {
+        MainActivity a = MainActivity.current;
+        if (a != null) a.setKeepAlive(false);
+        stopSelf();
+    };
 
     /* ===================== chamado pela ponte ===================== */
     static boolean isPlaying() {
@@ -70,7 +74,8 @@ public class PlaybackService extends Service {
     static void update(Context ctx, JSONObject s) {
         boolean has = s.optBoolean("has", false);
         boolean remote = s.optBoolean("remote", false);
-        if (!has || remote) {
+        boolean bg = s.optBoolean("bg", false);
+        if (!has || (remote && !bg)) {
             playing = false;
             stop(ctx);
             return;

@@ -14,6 +14,8 @@ final class Bridge {
             JSONObject m = new JSONObject(raw);
             switch (m.optString("t")) {
                 case "media":
+                    // bg = o admin liberou tocar o YouTube com o app em segundo plano
+                    a.setKeepAlive(m.optBoolean("has") && m.optBoolean("bg"));
                     PlaybackService.update(a, m);
                     break;
                 case "share":
