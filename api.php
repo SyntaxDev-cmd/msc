@@ -59,16 +59,28 @@ try {
                 return;
             }
             $q = mb_substr($q, 0, 120);
-            $limit = (int) cfg('max_results', 25);
+            $limit = max(1, min(50, (int) ($_GET['limit'] ?? cfg('max_results', 25))));
             session_write_close();
-            $items = match ($src) {
-                'catalog' => Metadata::searchCatalog($q, false, $limit),
-                'artist' => Metadata::searchCatalog($q, true, $limit),
-                'youtube' => YouTube::search($q, $limit),
-                'jamendo' => Jamendo::search($q, $limit),
-                default => throw new InvalidArgumentException('Fonte inválida'),
-            };
-            json_out(['items' => Library::annotate($items)]);
+            $fallback = false;
+            if (in_array($src, ['catalog', 'artist'], true)) {
+                // Catálogo primeiro (gênero/capa oficiais); se não achar nada, cai no YouTube
+                try {
+                    $items = Metadata::searchCatalog($q, $src === 'artist', $limit);
+                } catch (Throwable $e) {
+                    $items = [];
+                }
+                if (!$items) {
+                    $items = YouTube::search($q, $limit);
+                    $fallback = true;
+                }
+            } else {
+                $items = match ($src) {
+                    'youtube' => YouTube::search($q, $limit),
+                    'jamendo' => Jamendo::search($q, $limit),
+                    default => throw new InvalidArgumentException('Fonte inválida'),
+                };
+            }
+            json_out(['items' => Library::annotate($items), 'fallback' => $fallback, 'limit' => $limit]);
             return;
 
         case 'download':

@@ -21,7 +21,9 @@ storage/library/
 ## ✨ Recursos
 
 **Busca e download**
-- 4 fontes: **Músicas** (catálogo iTunes, com gênero/álbum/capa oficiais), **Artista (discografia)** — lista até 150 músicas do artista para baixar tudo com 1 clique —, **YouTube** (vídeos crus) e **Músicas livres** (Jamendo, Creative Commons).
+- **Baixa qualquer música ou vídeo que existir no YouTube** — é a fonte padrão da busca (até 50 resultados com “Carregar mais”).
+- Outras fontes: **Catálogo oficial** (iTunes, com gênero/álbum/capa oficiais), **Artista (discografia)** — até 150 músicas do artista para baixar tudo com 1 clique — e **Músicas livres** (Jamendo). Se o catálogo não encontrar a música, a busca cai automaticamente no YouTube.
+- Mesmo vídeos do YouTube ganham gênero e capa oficiais quando a música é reconhecida no catálogo; os demais vão para a pasta `Outros/Canal`.
 - Escolha **Áudio** ou **Vídeo** antes de baixar.
 - Filtros: sem “ao vivo”, sem covers/karaokê, até 10 min, “só o que eu não tenho”.
 - **Prévia de 30 s** antes de baixar (catálogo).

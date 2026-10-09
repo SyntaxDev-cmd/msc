@@ -37,7 +37,7 @@
   /* ======================= Estado ======================= */
   const S = {
     tracks: [], byId: new Map(), status: {}, jobs: [], pending: 0,
-    search: { q: '', source: 'catalog', items: [], loading: false, error: '', token: 0 },
+    search: { q: '', source: 'youtube', items: [], loading: false, error: '', token: 0, limit: 25, fallback: false },
     filters: store.get('filters', { live: false, cover: false, long: false, missing: false }),
     dlKind: store.get('dlKind', 'audio'),
   };
@@ -671,7 +671,7 @@
   }
 
   /* ---------- Busca ---------- */
-  const SOURCES = [['catalog', 'Músicas'], ['artist', 'Artista (discografia)'], ['youtube', 'YouTube'], ['jamendo', 'Músicas livres']];
+  const SOURCES = [['youtube', 'YouTube (tudo)'], ['catalog', 'Catálogo oficial'], ['artist', 'Artista (discografia)'], ['jamendo', 'Músicas livres']];
   function vSearch() {
     const params = new URLSearchParams(location.hash.split('?')[1] || '');
     const q = params.get('q') || S.search.q, src = params.get('s') || S.search.source;
@@ -700,8 +700,9 @@
     if (q) doSearch(q); else renderResults();
   }
 
-  async function doSearch(q) {
+  async function doSearch(q, more = false) {
     q = q.trim(); S.search.q = q;
+    S.search.limit = more ? 50 : 25;
     history.replaceState(null, '', `#/search?q=${encodeURIComponent(q)}&s=${S.search.source}`);
     const local = q.length > 1 ? S.tracks.filter((t) => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q.toLowerCase())).slice(0, 8) : [];
     const lh = $('#local-hits');
@@ -710,9 +711,9 @@
     const token = ++S.search.token;
     S.search.loading = true; S.search.error = ''; renderResults();
     try {
-      const r = await api('search', { params: { q, source: S.search.source } });
+      const r = await api('search', { params: { q, source: S.search.source, limit: S.search.limit } });
       if (token !== S.search.token) return;
-      S.search.items = r.items;
+      S.search.items = r.items; S.search.fallback = r.fallback;
     } catch (e) {
       if (token !== S.search.token) return;
       S.search.items = []; S.search.error = e.message;
@@ -740,7 +741,7 @@
     const btnAll = $('[data-action=download-all]', view);
     if (S.search.loading) { box.innerHTML = Array.from({ length: 6 }, () => '<div class="skeleton" style="margin-bottom:6px"></div>').join(''); if (btnAll) btnAll.disabled = true; return; }
     if (S.search.error) { box.innerHTML = `<div class="empty"><h3>Ops!</h3><p>${esc(S.search.error)}</p>${/yt-dlp|install/i.test(S.search.error) ? '<a class="btn primary" href="install.php">Abrir instalação</a>' : ''}</div>`; if (btnAll) btnAll.disabled = true; return; }
-    if (!S.search.q) { box.innerHTML = `<div class="empty">${icon('search')}<h3>Busque por música ou artista</h3><p>Dica: em <b>Artista (discografia)</b> você baixa tudo de um artista com um clique.</p></div>`; return; }
+    if (!S.search.q) { box.innerHTML = `<div class="empty">${icon('search')}<h3>Busque por música ou artista</h3><p>Qualquer música do YouTube pode ser baixada. Em <b>Artista (discografia)</b> você baixa tudo de um artista com um clique.</p></div>`; return; }
     const items = visibleItems(), k = S.dlKind;
     if (!items.length) { box.innerHTML = '<div class="empty"><h3>Nada encontrado</h3><p>Tente outra busca, outra fonte ou desligue os filtros.</p></div>'; if (btnAll) btnAll.disabled = true; return; }
     const todo = items.filter((it) => !it.library?.[k] && !it.job?.[k]);
@@ -757,7 +758,9 @@
         <div class="res-main"><b>${esc(it.title)}</b><small>${meta}</small>${chips ? `<div class="chips">${chips}</div>` : ''}</div>
         <span class="res-dur">${it.duration ? fmt(it.duration) : ''}</span>
         <div class="res-act">${resAction(it, k)}</div></div>`;
-    }).join('')}</div>`;
+    }).join('')}</div>
+    ${S.search.fallback ? '<p class="muted small" style="text-align:center">Não estava no catálogo oficial — mostrando resultados do YouTube.</p>' : ''}
+    ${S.search.limit < 50 && S.search.items.length >= S.search.limit && ['youtube', 'jamendo'].includes(S.search.source) || (S.search.fallback && S.search.limit < 50) ? `<div style="text-align:center;margin:18px 0"><button class="btn" data-action="more">${icon('down')} Carregar mais resultados</button></div>` : ''}`;
   }
   function resAction(it, k) {
     if (it.library?.[k]) return `<button class="btn sm have" data-action="play-one" data-id="${it.library[k]}">${icon('play')} ${k === 'video' ? 'Assistir' : 'Ouvir'}</button>`;
@@ -841,6 +844,7 @@
         download(todo);
       },
       preview: () => { const it = S.search.items[+a.closest('.res').dataset.idx]; if (it?.preview) togglePreview(a, it.preview); },
+      more: () => doSearch(S.search.q, true),
       'jobs-refresh': () => pollJobs(true),
       'jobs-clear': async () => { await api('jobs_clear', { body: {} }); pollJobs(true); },
       'job-retry': async () => { await api('job_retry', { body: { id: +a.closest('[data-job]').dataset.job } }); pollJobs(true); },
@@ -854,7 +858,7 @@
     const f = e.target.closest('[data-form]'); if (!f) return;
     e.preventDefault();
     const q = f.q.value.trim();
-    if (f.dataset.form === 'home-search') { location.hash = `#/search?q=${encodeURIComponent(q)}&s=catalog`; return; }
+    if (f.dataset.form === 'home-search') { location.hash = `#/search?q=${encodeURIComponent(q)}&s=youtube`; return; }
     doSearch(q);
   });
 
