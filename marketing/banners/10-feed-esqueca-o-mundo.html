@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Esqueça o mundo (feed 1080×1350)</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1350px; }
+  /* parede de capas em perspectiva */
+  .wall-wrap { position: absolute; inset: -200px -300px; perspective: 1400px; z-index: -2; }
+  .wall { position: absolute; left: 50%; top: 50%; width: 1900px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 26px;
+    transform: translate(-50%, -54%) rotateX(52deg) rotateZ(-24deg); }
+  .wall img { width: 100%; aspect-ratio: 1; border-radius: 22px; display: block; box-shadow: 0 30px 50px -20px rgba(0,0,0,.8); }
+  .veil { position: absolute; inset: 0; z-index: -1;
+    background: radial-gradient(ellipse at 50% 55%, rgba(7,7,13,.55) 0%, rgba(7,7,13,.88) 55%, #07070d 85%), linear-gradient(180deg, rgba(7,7,13,.9), transparent 30%, transparent 60%, rgba(7,7,13,.95)); }
+  .top { position: absolute; left: 0; right: 0; top: 76px; text-align: center; }
+  .lines { position: absolute; left: 0; right: 0; top: 330px; text-align: center; }
+  .lines .h { font-size: 106px; line-height: 1.04; text-shadow: 0 10px 40px rgba(0,0,0,.85); }
+  .lines .h .gt { text-shadow: none; filter: drop-shadow(0 10px 30px rgba(0,0,0,.8)); }
+  .lines .h span { display: block; }
+  .lines .h .dim { color: rgba(255,255,255,.82); }
+  .play { position: absolute; left: 50%; top: 800px; width: 190px; height: 190px; margin-left: -95px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(135deg, #a78bfa, #22d3ee); box-shadow: 0 0 0 18px rgba(139,92,246,.18), 0 0 0 40px rgba(139,92,246,.08), 0 40px 90px -20px rgba(139,92,246,.9); color: #fff; }
+  .play svg { width: 92px; margin-left: 12px; }
+  .bottom { position: absolute; left: 0; right: 0; bottom: 96px; text-align: center; }
+  .bottom .sub { font-size: 32px; color: #e0e0ee; font-weight: 600; }
+  .chips { display: flex; justify-content: center; gap: 12px; margin-top: 26px; }
+  .chips .pill { font-size: 22px; padding: 12px 20px; }
+  .chips .pill svg { width: 22px; height: 22px; color: #67e8f9; }
+</style></head>
+<body><div class="canvas">
+  <div class="wall-wrap"><div class="wall" id="wall"></div></div>
+  <div class="veil"></div><div class="grain"></div>
+
+  <div class="top"><span data-logo="64"></span></div>
+  <div class="lines">
+    <h1 class="h"><span class="dim">Coloque o fone.</span><span class="dim">Aperte o play.</span><span class="gt">Esqueça o mundo.</span></h1>
+  </div>
+  <div class="play" data-icon="play"></div>
+
+  <div class="bottom">
+    <p class="sub">Qualquer música, na hora — sem um único anúncio.</p>
+    <div class="chips">
+      <span class="pill"><span data-icon="lock"></span>Tela apagada</span>
+      <span class="pill"><span data-icon="offline"></span>Offline</span>
+      <span class="pill"><span data-icon="lyrics"></span>Letra ao vivo</span>
+    </div>
+  </div>
+</div>
+<script src="parts.js"></script>
+<script>
+  const order = [1, 4, 7, 2, 5, 8, 3, 6];
+  document.getElementById('wall').innerHTML = Array.from({ length: 56 }, (_, i) => `<img src="demo/c${order[(i * 3 + Math.floor(i / 8)) % 8]}.jpg" alt="">`).join('');
+</script>
+</body></html>

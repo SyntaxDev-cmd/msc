@@ -68,3 +68,21 @@ body { font-family: Inter, system-ui, sans-serif; color: var(--text); -webkit-fo
 .phone .sb span:last-child { display: flex; gap: 6px; align-items: center; }
 .phone .island { position: absolute; top: 10px; left: 50%; width: 112px; height: 30px; margin-left: -56px; border-radius: 20px; background: #000; z-index: 2; }
 .phone .glare { position: absolute; inset: 0; border-radius: 52px; background: linear-gradient(120deg, rgba(255,255,255,.10), transparent 30%); pointer-events: none; }
+
+/* ===== Planos (v2) ===== */
+.plan { position: relative; border-radius: 30px; padding: 34px 30px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(14px); }
+.plan .name { font: 800 26px Sora, Inter; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.plan .price { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; font-family: Sora, Inter; font-weight: 800; letter-spacing: -.05em; color: #fff; }
+.plan .price .cur { font-size: .34em; margin-top: .32em; letter-spacing: 0; }
+.plan .price .cents { font-size: .34em; margin-top: .32em; letter-spacing: 0; }
+.plan .price .per { font: 600 .2em Inter; color: var(--muted); align-self: flex-end; margin-bottom: .55em; letter-spacing: 0; margin-left: 4px; }
+.plan ul { list-style: none; margin-top: 18px; display: grid; gap: 12px; }
+.plan li { display: flex; align-items: center; gap: 12px; font-weight: 600; color: #e6e6f0; }
+.plan li .ck { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; background: rgba(34,211,238,.16); color: #67e8f9; }
+.plan li .ck svg { width: 16px; height: 16px; }
+.plan.hot { background: linear-gradient(160deg, rgba(139,92,246,.45), rgba(34,211,238,.18)); border: 2px solid rgba(167,139,250,.9);
+  box-shadow: 0 40px 90px -30px rgba(139,92,246,.9), inset 0 1px 0 rgba(255,255,255,.25); }
+.plan.hot .name { color: #fff; }
+.plan.hot li .ck { background: #fff; color: #6d28d9; }
+.ribbon { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 10px 22px; border-radius: 999px;
+  font: 800 18px Sora, Inter; letter-spacing: .08em; text-transform: uppercase; color: #1b0f3d; background: linear-gradient(100deg, #fde68a, #fbbf24); box-shadow: 0 12px 30px -8px rgba(251,191,36,.8); }

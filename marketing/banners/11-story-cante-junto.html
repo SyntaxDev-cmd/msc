@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Cante junto (story 1080×1920)</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1920px; background: linear-gradient(180deg, #1a0b2e 0%, #3b0f4f 40%, #0b0b12 100%); }
+  .art { position: absolute; left: 50%; top: 250px; width: 900px; height: 900px; margin-left: -450px; border-radius: 50%; filter: blur(120px); opacity: .6; z-index: -1;
+    background: conic-gradient(from 90deg, #ec4899, #8b5cf6, #22d3ee, #ec4899); }
+  .logo-wrap { position: absolute; top: 262px; left: 0; right: 0; text-align: center; }
+  .cover { position: absolute; left: 90px; top: 400px; display: flex; align-items: center; gap: 26px; }
+  .cover img { width: 130px; height: 130px; border-radius: 22px; box-shadow: 0 20px 50px -14px #000; }
+  .cover b { display: block; font: 800 40px Sora, Inter; letter-spacing: -.02em; }
+  .cover span { font-size: 28px; color: rgba(255,255,255,.75); font-weight: 600; }
+  .cover .live { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 20px; font-weight: 700; }
+  .cover .live i { width: 10px; height: 10px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 12px #22d3ee; }
+  .lyrics { position: absolute; left: 90px; right: 70px; top: 620px; font-family: Sora, Inter; font-weight: 800; letter-spacing: -.035em; line-height: 1.12; }
+  .lyrics p { font-size: 66px; margin-bottom: 30px; color: rgba(255,255,255,.28); }
+  .lyrics p.past { color: rgba(255,255,255,.5); font-size: 58px; }
+  .lyrics p.on { font-size: 92px; color: #fff; text-shadow: 0 0 60px rgba(236,72,153,.6); }
+  .lyrics p.on .w { background: linear-gradient(100deg, #fde68a, #f472b6 60%, #a78bfa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .bar { position: absolute; left: 90px; right: 90px; top: 1250px; }
+  .bar .t { height: 8px; border-radius: 8px; background: rgba(255,255,255,.18); position: relative; }
+  .bar .t i { position: absolute; inset: 0 55% 0 0; border-radius: 8px; background: #fff; }
+  .bar .t i::after { content: ""; position: absolute; right: -10px; top: -7px; width: 22px; height: 22px; border-radius: 50%; background: #fff; }
+  .bar .tm { display: flex; justify-content: space-between; margin-top: 12px; font-size: 22px; color: rgba(255,255,255,.6); font-weight: 600; }
+  .bottom { position: absolute; left: 0; right: 0; top: 1360px; text-align: center; }
+  .bottom .h { font-size: 92px; }
+  .bottom .sub { font-size: 30px; margin-top: 14px; color: #e5e1f0; }
+</style></head>
+<body><div class="canvas">
+  <div class="art"></div><div class="grain"></div>
+  <div class="logo-wrap"><span data-logo="64"></span></div>
+
+  <div class="cover"><img src="demo/c5.jpg" alt=""><div><b>Noite em Neon</b><span>Luna Vale</span><br><span class="live"><i></i>Letra ao vivo</span></div></div>
+
+  <div class="lyrics">
+    <p class="past">O som no talo, ninguém pode parar</p>
+    <p class="on"><span class="w">Sem pausa, sem anúncio,</span> só o que importa</p>
+    <p>É você e a música no ar</p>
+  </div>
+
+  <div class="bar"><div class="t"><i></i></div><div class="tm"><span>1:24</span><span>3:12</span></div></div>
+
+  <div class="bottom">
+    <h2 class="h">Cante junto.<br><span class="gt">Sem interrupção.</span></h2>
+    <p class="sub">Letra sincronizada enquanto toca — e nenhum anúncio.</p>
+  </div>
+</div>
+<script src="parts.js"></script>
+</body></html>

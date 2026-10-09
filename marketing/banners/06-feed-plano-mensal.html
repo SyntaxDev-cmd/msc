@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Plano mensal (feed 1080×1350) · use ?p=10, ?p=15 ou ?p=20</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1350px; }
+  .top { position: absolute; left: 70px; right: 70px; top: 66px; display: flex; justify-content: space-between; align-items: center; }
+  .head { position: absolute; left: 70px; top: 190px; width: 620px; }
+  .head .h { font-size: 88px; }
+  .phone { right: 40px; top: 150px; width: 360px; transform: rotate(9deg); z-index: 0; }
+  .plan { position: absolute; left: 70px; right: 70px; top: 520px; padding: 44px 50px; z-index: 2;
+    background: linear-gradient(160deg, rgba(76,29,149,.92), rgba(30,27,75,.92)); border: 2px solid rgba(167,139,250,.8); }
+  .ribbon { left: 50px; transform: none; }
+  .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; }
+  .plan .name { font-size: 28px; color: #fff; }
+  .plan .price { font-size: 190px; margin-top: 4px; }
+  .plan .day { font-size: 26px; font-weight: 700; color: #fde68a; margin-top: -6px; }
+  .incl { text-align: right; font: 800 22px Sora, Inter; letter-spacing: .12em; text-transform: uppercase; color: #c4b5fd; margin-bottom: 40px; }
+  .incl b { display: block; font-size: 64px; letter-spacing: -.04em; color: #fff; text-transform: none; }
+  .plan ul { grid-template-columns: 1fr 1fr; gap: 16px 30px; margin-top: 30px; padding-top: 30px; border-top: 1px solid rgba(255,255,255,.15); }
+  .plan li { font-size: 26px; }
+  .plan li .ck { background: #fff; color: #6d28d9; }
+  .bottom { position: absolute; left: 70px; right: 70px; bottom: 76px; display: flex; align-items: center; justify-content: space-between; z-index: 3; }
+  .cta { font-size: 38px; padding: 22px 22px 22px 46px; }
+  .cta .arrow { width: 64px; height: 64px; } .cta .arrow svg { width: 30px; }
+  .note { font-size: 24px; color: var(--muted); font-weight: 600; text-align: right; line-height: 1.35; }
+  .note b { color: #fde68a; }
+</style></head>
+<body><div class="canvas">
+  <div class="glow" style="width:820px;height:820px;background:#7c3aed;left:130px;top:420px;opacity:.55"></div>
+  <div class="glow" style="width:520px;height:520px;background:#06b6d4;right:-220px;top:-160px;opacity:.35"></div>
+  <div class="glow" style="width:460px;height:460px;background:#db2777;left:-200px;bottom:-160px;opacity:.3"></div>
+  <div class="grid-lines"></div><div class="grain"></div>
+
+  <div class="top"><span data-logo="60"></span></div>
+  <div class="head"><h1 class="h">Um plano.<br><span class="gt">Tudo incluído.</span></h1></div>
+  <div class="phone" data-shot="np.png"></div>
+
+  <div class="plan">
+    <span class="ribbon">Sem anúncios</span>
+    <div class="row">
+      <div>
+        <div class="name">Plano mensal</div>
+        <div class="price"><span class="cur">R$</span><span data-price>15</span><span class="per">/mês</span></div>
+        <div class="day" data-day="só R$ {d} por dia"></div>
+      </div>
+      <div class="incl">acesso<b>completo</b></div>
+    </div>
+    <ul data-checks="Zero anúncios|Toca com a tela apagada|Ouça offline|Letra sincronizada|Playlists e favoritas|Siga seus artistas"></ul>
+  </div>
+
+  <div class="bottom">
+    <span class="cta">Assine agora <span class="arrow" data-icon="arrow"></span></span>
+    <span class="note">🎁 <b>Teste grátis</b> antes de pagar<br>sem fidelidade</span>
+  </div>
+</div>
+<script src="parts.js"></script>
+</body></html>

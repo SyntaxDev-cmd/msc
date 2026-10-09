@@ -38,3 +38,15 @@ document.querySelectorAll('[data-logo]').forEach((el) => {
   el.classList.add('logo');
 });
 document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = ICON[el.dataset.icon] || ''; });
+/* <ul data-checks="a|b|c"> → lista com ✓ */
+document.querySelectorAll('[data-checks]').forEach((ul) => {
+  ul.innerHTML = ul.dataset.checks.split('|').map((t) => `<li><span class="ck">${ICON.check}</span>${t}</li>`).join('');
+});
+/* Preço por parâmetro: arquivo.html?p=15 → mesmo banner com outro valor (um plano só, tudo incluído) */
+(() => {
+  const p = new URLSearchParams(location.search).get('p');
+  document.querySelectorAll('[data-price]').forEach((el) => { if (p) el.textContent = p; });
+  const val = +(p || document.querySelector('[data-price]')?.textContent || 0);
+  const day = (val / 30).toFixed(2).replace('.', ',');
+  document.querySelectorAll('[data-day]').forEach((el) => { el.textContent = el.dataset.day.replace('{d}', day); });
+})();

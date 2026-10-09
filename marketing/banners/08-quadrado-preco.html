@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>zMusic — Preço (quadrado 1080×1080) · use ?p=10, ?p=15 ou ?p=20</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  .canvas { width: 1080px; height: 1080px;
+    background: radial-gradient(circle at 85% 15%, #22d3ee 0%, transparent 40%), radial-gradient(circle at 10% 90%, #ec4899 0%, transparent 42%),
+      linear-gradient(150deg, #1e1b4b 0%, #4c1d95 45%, #6d28d9 100%); }
+  .eq { position: absolute; left: 0; right: 0; bottom: 0; height: 330px; display: flex; gap: 10px; align-items: flex-end; padding: 0 20px; opacity: .22; z-index: -1; }
+  .eq i { flex: 1; border-radius: 10px 10px 0 0; background: linear-gradient(#fff, rgba(255,255,255,0)); }
+  .top { position: absolute; left: 70px; top: 64px; }
+  .top .logo b i { background: none; color: #fff; }
+  .pre { position: absolute; left: 70px; top: 196px; font: 800 44px Sora, Inter; letter-spacing: -.02em; color: rgba(255,255,255,.92); }
+  .price { position: absolute; left: 56px; top: 250px; z-index: 2; display: flex; align-items: flex-start; font-family: Sora, Inter; font-weight: 800; color: #fff; letter-spacing: -.07em; line-height: 1; }
+  .price .cur { font-size: 90px; margin-top: 52px; margin-right: 10px; letter-spacing: -.02em; }
+  .price .n { font-size: 290px; text-shadow: 0 30px 80px rgba(20,0,60,.5); }
+  .price .per { font: 700 46px Inter; letter-spacing: 0; align-self: flex-end; margin: 0 0 62px 10px; color: rgba(255,255,255,.85); }
+  .sticker { position: absolute; left: 820px; top: 150px; width: 190px; height: 190px; border-radius: 50%; display: grid; place-items: center; text-align: center;
+    background: linear-gradient(135deg, #fde68a, #fbbf24); color: #1b0f3d; transform: rotate(12deg); box-shadow: 0 20px 50px -14px rgba(0,0,0,.5);
+    font: 800 26px/1.05 Sora, Inter; letter-spacing: -.01em; }
+  .sticker b { display: block; font-size: 46px; letter-spacing: -.04em; }
+  .feats { position: absolute; left: 70px; top: 610px; display: grid; gap: 14px; }
+  .feats div { display: flex; align-items: center; gap: 14px; font-size: 32px; font-weight: 700; }
+  .feats svg { width: 34px; height: 34px; color: #fde68a; }
+  .phone { right: 54px; top: 420px; width: 330px; transform: rotate(9deg); box-shadow: 0 0 0 2px rgba(255,255,255,.18), 0 60px 120px -30px rgba(20,0,60,.95); }
+  .bottom { position: absolute; left: 70px; bottom: 70px; z-index: 3; display: flex; align-items: center; gap: 24px; }
+  .cta { font-size: 38px; padding: 22px 22px 22px 46px; }
+  .cta .arrow { width: 64px; height: 64px; } .cta .arrow svg { width: 30px; }
+  .bottom small { font-size: 24px; font-weight: 600; color: rgba(255,255,255,.85); line-height: 1.3; }
+</style></head>
+<body><div class="canvas">
+  <div class="eq"></div><div class="grain"></div>
+  <div class="top" data-logo="60"></div>
+
+  <div class="pre">Música sem anúncios por</div>
+  <div class="price"><span class="cur">R$</span><span class="n" data-price>10</span><span class="per">/mês</span></div>
+  <div class="sticker"><div>só<b data-day="R$ {d}"></b>por dia</div></div>
+
+  <div class="feats">
+    <div><span data-icon="check"></span>Zero anúncios</div>
+    <div><span data-icon="check"></span>Toca com a tela apagada</div>
+    <div><span data-icon="check"></span>Letra sincronizada</div>
+  </div>
+
+  <div class="phone" data-shot="np.png"></div>
+
+  <div class="bottom">
+    <span class="cta white">Assine já <span class="arrow" data-icon="arrow"></span></span>
+    <small>🎁 Teste grátis<br>antes de pagar</small>
+  </div>
+</div>
+<script src="parts.js"></script>
+<script>
+  // barras de equalizador ao fundo
+  const eq = document.querySelector('.eq');
+  eq.innerHTML = Array.from({ length: 36 }, (_, i) => `<i style="height:${Math.round(25 + 70 * Math.abs(Math.sin(i * 0.55) * Math.cos(i * 0.21)))}%"></i>`).join('');
+</script>
+</body></html>
