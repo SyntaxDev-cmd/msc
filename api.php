@@ -21,6 +21,32 @@ if ($action === 'mp_webhook') {
     return;
 }
 
+/* ---------- Agente de download (programa no PC do administrador; autentica por token) ---------- */
+if (str_starts_with($action, 'agent_') && in_array($action, ['agent_next', 'agent_upload', 'agent_fail'], true)) {
+    try {
+        if (!Agent::check((string) ($_GET['token'] ?? ''))) {
+            json_out(['error' => 'Token do agente inválido. Baixe o agente de novo no painel.'], 403);
+            return;
+        }
+        @set_time_limit(300);
+        switch ($action) {
+            case 'agent_next':
+                json_out(['job' => Agent::next()]);
+                break;
+            case 'agent_upload':
+                json_out(['ok' => true, 'track_id' => Agent::upload((int) ($_GET['job_id'] ?? 0), $_FILES['file'] ?? [], (int) ($_GET['part'] ?? 0), (int) ($_GET['parts'] ?? 1))]);
+                break;
+            case 'agent_fail':
+                Agent::fail((int) ($_GET['job_id'] ?? 0), (string) ($input['error'] ?? $_POST['error'] ?? 'erro desconhecido'));
+                json_out(['ok' => true]);
+                break;
+        }
+    } catch (Throwable $e) {
+        json_out(['error' => $e->getMessage()], $e instanceof DomainException || $e instanceof InvalidArgumentException ? 422 : 500);
+    }
+    return;
+}
+
 start_session();
 
 function me_payload(array $u): array
@@ -251,7 +277,7 @@ try {
 
         case 'jobs':
             $res = ['jobs' => Jobs::list($user, 100), 'pending' => Jobs::pendingCount($user)];
-            if (Jobs::pendingCount() > 0 && !Worker::busy()) {
+            if ((int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status = 'queued'")['c'] ?? 0) > 0 && !Worker::busy()) {
                 respond_and_continue($res);
                 Worker::run((int) cfg('worker_max_seconds', 270));
                 return;
@@ -664,6 +690,28 @@ try {
                 $token = $admin && ($input['target'] ?? '') === 'global' ? Settings::get('mp_access_token') : (string) (Account::settings($user)['mp']['token'] ?? '');
             }
             json_out(['ok' => true, 'account' => MercadoPago::whoami($token)]);
+            return;
+
+        case 'agent_status':
+            need($admin);
+            $seen = (int) Settings::get('agent_seen');
+            json_out([
+                'online' => Agent::online(), 'last_seen' => $seen ?: null, 'configured' => Agent::configured(),
+                'waiting' => (int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status IN ('queued','agent') AND source IN ('youtube','itunes')")['c'] ?? 0),
+                'done' => (int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status = 'done' AND message LIKE '%agente%'")['c'] ?? 0),
+                'upload_max' => ini_get('upload_max_filesize'), 'post_max' => ini_get('post_max_size'),
+            ]);
+            return;
+
+        case 'agent_script':
+            need($admin);
+            if (!empty($_GET['regen'])) {
+                Agent::regenerate();
+            }
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="Agente de download.bat"');
+            header('Cache-Control: no-store');
+            echo Agent::windowsScript();
             return;
 
         case 'logs':

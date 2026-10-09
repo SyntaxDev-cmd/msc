@@ -48,7 +48,9 @@ final class Worker
                   message = CASE WHEN attempts >= 3 THEN 'Interrompido várias vezes' ELSE message END
                   WHERE status = 'running' AND updated_at < ?", [time() - 180]);
         while (time() - $start < $maxSeconds) {
-            $job = Db::one("SELECT * FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1");
+            $job = Agent::online()
+                ? Db::one("SELECT * FROM jobs WHERE status = 'queued' AND source = 'jamendo' ORDER BY id LIMIT 1")
+                : Db::one("SELECT * FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1");
             if (!$job) {
                 break;
             }
@@ -57,6 +59,8 @@ final class Worker
                 [$trackId, $msg] = self::process($job);
                 Jobs::deliver((int) $job['id'], $trackId);
                 Jobs::update((int) $job['id'], ['status' => 'done', 'progress' => 100, 'message' => $msg, 'track_id' => $trackId]);
+            } catch (AgentHandoff $e) {
+                Jobs::update((int) $job['id'], ['status' => 'agent', 'progress' => 0, 'message' => 'Aguardando o agente de download no PC']);
             } catch (Throwable $e) {
                 Jobs::update((int) $job['id'], ['status' => 'error', 'message' => mb_substr($e->getMessage(), 0, 400)]);
             }
@@ -68,21 +72,61 @@ final class Worker
         return $done;
     }
 
-    /** @return array{0:int,1:string} [track_id, mensagem] */
-    private static function process(array $job): array
+    public static function progressFn(int $id): callable
     {
-        $id = (int) $job['id'];
-        $kind = $job['kind'];
-        $p = json_decode((string) $job['payload'], true) ?: [];
         $last = 0.0;
-        $progress = function (float $pct, string $msg = 'Baixando') use ($id, &$last) {
+        return function (float $pct, string $msg = 'Baixando') use ($id, &$last) {
             if (microtime(true) - $last >= 1.0) {
                 $last = microtime(true);
                 Jobs::update($id, ['progress' => round($pct, 1), 'message' => $msg]);
             }
         };
+    }
 
-        // 1) Metadados definitivos (artista, título, gênero, capa)
+    /** @return array{0:int,1:string} [track_id, mensagem] */
+    private static function process(array $job): array
+    {
+        $progress = self::progressFn((int) $job['id']);
+        $prep = self::prepare($job, $progress);
+        if ($prep['existing']) {
+            return [$prep['existing'], 'Já estava na biblioteca'];
+        }
+        $tmp = storage_path('tmp/job_' . $job['id']);
+        self::rrmdir($tmp);
+        @mkdir($tmp, 0755, true);
+        try {
+            if ($prep['downloadUrl'] !== '') {
+                $file = $tmp . '/media.mp3';
+                Http::download($prep['downloadUrl'], $file, fn($pct) => $progress(min(97, $pct)));
+            } else {
+                try {
+                    $file = YouTube::download($prep['youtubeId'], $job['kind'], $tmp, $progress);
+                } catch (Throwable $e) {
+                    // YouTube bloqueou o servidor: deixa para o agente de download (PC do administrador)
+                    if (Agent::configured()) {
+                        throw new AgentHandoff();
+                    }
+                    throw $e;
+                }
+            }
+            return [self::finalize($job, $prep, $file, $progress), 'Pronto para ouvir'];
+        } finally {
+            self::rrmdir($tmp);
+        }
+    }
+
+    /**
+     * Etapa 1: metadados definitivos (artista, título, gênero, capa) e qual vídeo baixar.
+     * @return array{m:array,youtubeId:string,downloadUrl:string,key:string,existing:?int}
+     */
+    public static function prepare(array $job, callable $progress): array
+    {
+        $kind = $job['kind'];
+        $p = json_decode((string) $job['payload'], true) ?: [];
+        if (!empty($p['_prep'])) {
+            return $p['_prep'] + ['existing' => null];
+        }
+
         $youtubeId = '';
         $downloadUrl = '';
         switch ($job['source']) {
@@ -138,27 +182,26 @@ final class Worker
                 throw new RuntimeException('Origem desconhecida');
         }
 
-        // 2) Checagem final de duplicidade (agora com o nome "oficial")
+        // checagem final de duplicidade (agora com o nome "oficial")
         $key = Text::key($m['artist'], $m['title']);
         $existing = Library::findExisting($job['source'], $job['source_id'], $kind, $key, $youtubeId);
-        if ($existing) {
-            return [(int) $existing['id'], 'Já estava na biblioteca'];
+        return ['m' => $m, 'youtubeId' => $youtubeId, 'downloadUrl' => $downloadUrl, 'key' => $key, 'existing' => $existing ? (int) $existing['id'] : null];
+    }
+
+    /** Etapa final: converte, organiza em Gênero/Artista/Música, salva a capa e cadastra no acervo */
+    public static function finalize(array $job, array $prep, string $file, callable $progress): int
+    {
+        $id = (int) $job['id'];
+        $kind = $job['kind'];
+        $m = $prep['m'];
+        $key = $prep['key'];
+        $youtubeId = $prep['youtubeId'];
+        if ($kind === 'audio') {
+            $file = Mirrors::convert($file, dirname($file), $progress); // MP3/Opus se houver ffmpeg
         }
-
-        // 3) Download
-        $tmp = storage_path('tmp/job_' . $id);
-        self::rrmdir($tmp);
-        @mkdir($tmp, 0755, true);
-        try {
-            if ($downloadUrl !== '') {
-                $file = $tmp . '/media.mp3';
-                Http::download($downloadUrl, $file, fn($pct) => $progress(min(97, $pct)));
-            } else {
-                $file = YouTube::download($youtubeId, $kind, $tmp, $progress);
-            }
-            $progress(99, 'Organizando');
-
-            // 4) Organiza em library/Gênero/Artista/Música.ext
+        $progress(99, 'Organizando');
+        {
+            // organiza em library/Gênero/Artista/Música.ext
             $genre = Text::safeName($m['genre'] ?: 'Outros', 'Outros');
             $artistDir = Text::safeName(Text::primaryArtist($m['artist']), 'Desconhecido');
             $relDir = $genre . '/' . $artistDir;
@@ -186,8 +229,6 @@ final class Worker
                     $coverRel = '';
                 }
             }
-        } finally {
-            self::rrmdir($tmp);
         }
 
         $trackId = Db::insert('tracks', [
@@ -197,7 +238,7 @@ final class Worker
             'mime' => Library::MIME[$ext] ?? 'application/octet-stream', 'size' => (int) filesize(Library::abs($rel)),
             'cover_path' => $coverRel, 'youtube_id' => $youtubeId, 'created_at' => time(),
         ]);
-        return [$trackId, 'Pronto para ouvir'];
+        return $trackId;
     }
 
     private static function rrmdir(string $dir): void

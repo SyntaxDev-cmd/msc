@@ -33,6 +33,8 @@ final class Settings
             'yt_clients' => '',
             'rapidapi_key' => '',
             'apify_token' => '',
+            'agent_token' => '',
+            'agent_seen' => '0',
             'apify_actor' => 'myagizm/youtube-mp3-downloader',
             'referral_enabled' => '1',
             'referral_new_pct' => '10',

@@ -96,7 +96,7 @@ final class Library
                 $it['job'][$kind] = null;
                 if (!$t) {
                     $j = Db::one(
-                        "SELECT id, status, progress, message FROM jobs WHERE kind = ? AND status IN ('queued','running')
+                        "SELECT id, status, progress, message FROM jobs WHERE kind = ? AND status IN ('queued','running','agent')
                          AND ((source = ? AND source_id = ?) OR dedup_key = ?) ORDER BY id DESC LIMIT 1",
                         [$kind, $it['source'], $it['source_id'], $key]
                     );

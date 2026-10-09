@@ -229,7 +229,7 @@ $csrf = Auth::csrf();
                     <li class="<?= $ok ? 'ok' : 'bad' ?>"><span><?= $ok ? '✔' : '✖' ?></span><b><?= $h($label) ?></b> <small><?= $h($detail) ?></small></li>
                 <?php endforeach; ?>
             </ul>
-            <p class="muted small">Basta <b>um</b> dos dois downloads funcionar. Se os dois falharem, as soluções (da mais simples para a mais garantida): <b>1)</b> enviar o cookies.txt abaixo; <b>2)</b> colocar uma chave grátis da API <a href="https://rapidapi.com/ytjar/api/youtube-mp36" target="_blank" rel="noopener">youtube-mp36</a> em Painel › Marca e config. › Download do YouTube; <b>3)</b> usar um proxy residencial no mesmo lugar.</p>
+            <p class="muted small">Basta <b>um</b> dos dois downloads funcionar. Se os dois falharem, as soluções: <b>★ recomendado:</b> o <b>agente de download</b> no seu PC (Painel › Marca e config. — grátis e sem limite); <b>1)</b> enviar o cookies.txt abaixo; <b>2)</b> colocar uma chave grátis da API <a href="https://rapidapi.com/ytjar/api/youtube-mp36" target="_blank" rel="noopener">youtube-mp36</a> em Painel › Marca e config. › Download do YouTube; <b>3)</b> usar um proxy residencial no mesmo lugar.</p>
         <?php endif; ?>
         <div class="tool-grid">
             <form method="post" class="tool" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Testando… (até 3 min)'">

@@ -32,6 +32,7 @@
         ${d.tracks !== null ? `<div class="stat"><span>Acervo do servidor</span><b>${d.tracks}</b><span>${fmtSize(d.storage)} usados${d.disk_free ? ` · ${fmtSize(d.disk_free)} livres` : ''}</span></div>` : ''}
       </div>
       ${d.tools && !d.tools.ytdlp ? '<div class="banner err"><span>yt-dlp não instalado: ninguém consegue baixar.</span><a class="btn sm" href="install.php">Instalar</a></div>' : ''}
+      <div id="agent-dash"></div>
       <div class="dash-grid">
         <div class="panel-card"><h3>Últimos 14 dias</h3>
           <div class="chart" role="img" aria-label="Receita e novos cadastros por dia">${d.series.map((x) => `<div class="col" title="${x.day}: ${money(x.revenue)} · ${x.signups} cadastro(s)">
@@ -44,6 +45,11 @@
       </div>`;
     $('[data-new]', view).onclick = () => openCreate();
     $('[data-quick-trial]', view).onclick = quickTrial;
+    if (isAdmin()) api('agent_status').then((ag) => {
+      const box = $('#agent-dash'); if (!box) return;
+      box.innerHTML = ag.online ? `<div class="banner info"><span>🟢 Agente de download conectado · ${ag.done} músicas já baixadas por ele</span></div>`
+        : ag.waiting ? `<div class="banner warn"><span>⏳ ${ag.waiting} música${ag.waiting > 1 ? 's' : ''} esperando o <b>agente de download</b> — ligue-o no seu PC para elas irem para o servidor.</span><a class="btn sm primary" href="#/admin/settings">Ver agente</a></div>` : '';
+    }).catch(() => {});
     $$('[data-renew]', view).forEach((b) => (b.onclick = () => openRenew(d.expiring_list.find((a) => a.id === +b.dataset.renew), vDashboard)));
   }
 
@@ -347,6 +353,15 @@
     const webhook = `<label class="fld"><span>URL de notificação (webhook) — já é enviada automaticamente em cada cobrança</span><div class="in-btn"><input readonly value="${esc(d.webhook)}"><button type="button" class="icon-btn" data-copy-wh>${icon('copy')}</button></div></label>`;
 
     view.innerHTML = header('Marca e configurações', isAdmin() ? 'Personalize o app, receba pagamentos e defina as regras' : 'Deixe o app com a sua cara e receba direto na sua conta') + (isAdmin() ? `
+      <div class="card-form" id="agent-card"><h3>💻 Agente de download <span class="pill-s active">recomendado</span></h3>
+        <p class="muted small">O YouTube bloqueia downloads vindos de servidores de hospedagem. O agente roda no <b>seu computador</b> (internet de casa, que não é bloqueada):
+        ele pega a fila de downloads do app, baixa com o <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> e envia para a hospedagem — que converte para MP3,
+        organiza por Gênero/Artista e libera para todos, <b>sem anúncios</b>.</p>
+        <div id="agent-status" class="renew-sum">Verificando…</div>
+        <ol class="steps"><li>Clique em <b>Baixar agente</b> (Windows).</li><li>Dê dois cliques no arquivo <b>“Agente de download.bat”</b>. Na 1ª vez ele baixa o yt-dlp sozinho.</li>
+        <li>Deixe a janela aberta. Tudo que pedirem para baixar no app chega nela e sobe para o servidor.</li></ol>
+        <p class="muted small">Se o Windows avisar “O Windows protegeu o computador”, clique em <b>Mais informações › Executar assim mesmo</b> (é um script de texto que você pode abrir no Bloco de Notas para conferir).</p>
+        <div class="row end"><button type="button" class="btn ghost" id="agent-regen">Gerar novo token</button><a class="btn primary" href="api.php?action=agent_script">${icon('download')} Baixar agente (Windows)</a></div></div>
       <form class="card-form" id="f-brand"><h3>🎨 Marca</h3>
         ${preview({ name: g.brand_name, tagline: g.brand_tagline, color: g.brand_color, color2: g.brand_color2 }, g.logo_url)}
         ${brandFields({ name: g.brand_name, tagline: g.brand_tagline, color: g.brand_color, color2: g.brand_color2, support_url: g.support_url }, 'brand_')}
@@ -419,6 +434,22 @@
       const prices = {}; Object.keys(o).filter((k) => k.startsWith('price_')).forEach((k) => (prices[k.slice(6)] = o[k]));
       return save({ mine: { mp_token: o.mp_token, prices, signup: !!o.signup } });
     });
+    const agentBox = $('#agent-status');
+    if (agentBox) {
+      const refreshAgent = async () => {
+        if (!document.body.contains(agentBox)) return;
+        try {
+          const a = await api('agent_status');
+          const small = /K$/i.test(a.upload_max) || (parseInt(a.upload_max, 10) < 2 && /M$/i.test(a.upload_max)); // o agente envia em pedaços de 1 MB
+          agentBox.innerHTML = `${a.online ? '🟢 <b>Agente conectado</b>' : a.last_seen ? `🔴 Agente desligado (visto por último ${new Date(a.last_seen * 1000).toLocaleString('pt-BR')})` : '⚪ Agente ainda não foi usado'}
+            · ${a.waiting} música${a.waiting !== 1 ? 's' : ''} esperando · ${a.done} baixada${a.done !== 1 ? 's' : ''} pelo agente
+            ${small ? `<br>⚠️ O limite de upload do PHP é ${esc(a.upload_max)} — aumente para pelo menos 2M em hPanel › Configuração do PHP (upload_max_filesize e post_max_size).` : ''}`;
+        } catch (e) { agentBox.textContent = e.message; }
+        setTimeout(refreshAgent, 10000);
+      };
+      refreshAgent();
+      $('#agent-regen').onclick = () => { if (confirm('Gerar um novo token? O agente antigo para de funcionar e você precisa baixar o novo.')) location.href = 'api.php?action=agent_script&regen=1'; };
+    }
     $$('[data-mp-test]', view).forEach((b) => (b.onclick = async () => {
       const inp = b.closest('form').querySelector('input[name=mp_access_token], input[name=mp_token]');
       b.disabled = true;

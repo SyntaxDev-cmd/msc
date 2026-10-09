@@ -937,12 +937,14 @@
   function renderJobs() {
     const box = $('#jobs'); if (!box) return;
     if (!S.jobs.length) { box.innerHTML = `<div class="empty">${icon('download')}<h3>Nenhum download</h3><p>Busque uma música e toque em baixar.</p></div>`; return; }
-    const label = { queued: 'Na fila', running: 'Baixando', done: 'Pronto', error: 'Erro' };
-    box.innerHTML = S.jobs.map((j) => `<div class="job ${j.status}" data-job="${j.id}">
+    const waitingAgent = S.jobs.filter((j) => j.status === 'agent').length;
+    const agentNote = waitingAgent ? `<div class="banner warn"><span>⏳ ${waitingAgent} música${waitingAgent > 1 ? 's' : ''} aguardando o <b>agente de download</b> (o YouTube bloqueia o servidor). ${isAdmin() ? 'Ligue o agente no seu PC.' : 'Assim que o administrador ligar o agente, elas baixam sozinhas. Enquanto isso, toque pelo botão ▶ Tocar.'}</span>${isAdmin() ? '<a class="btn sm primary" href="#/admin/settings">Ver agente</a>' : ''}</div>` : '';
+    const label = { queued: 'Na fila', running: 'Baixando', done: 'Pronto', error: 'Erro', agent: 'Aguardando o agente de download' };
+    box.innerHTML = agentNote + S.jobs.map((j) => `<div class="job ${j.status}" data-job="${j.id}">
       ${j.thumb ? `<img src="${esc(j.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph-sm"></div>'}
       <div style="min-width:0"><b>${esc(j.title)}${j.kind === 'video' ? '<span class="tag">vídeo</span>' : ''}</b>
       <small>${esc(j.artist)} · ${j.status === 'running' ? `${esc(j.message || 'Baixando')} ${j.progress}%` : esc(j.message || label[j.status])}</small>
-      ${j.status === 'running' || j.status === 'queued' ? `<div class="bar"><i style="width:${j.progress}%"></i></div>` : ''}</div>
+      ${['running', 'queued', 'agent'].includes(j.status) ? `<div class="bar"><i style="width:${j.progress}%"></i></div>` : ''}</div>
       <div class="row">${j.status === 'done' && j.track_id ? `<button class="btn sm have" data-action="play-one" data-id="${j.track_id}">${icon('play')} Ouvir</button>` : ''}
       ${j.status === 'error' ? `<button class="btn sm" data-action="job-retry">${icon('refresh')} Tentar de novo</button>` : ''}
       ${j.status !== 'running' ? `<button class="icon-btn" data-action="job-cancel" title="Remover">${icon('close')}</button>` : ''}</div></div>`).join('');
@@ -1074,10 +1076,10 @@
   }
   function resAction(it, k) {
     if (it.library?.[k]) return `<button class="btn sm have" data-action="play-one" data-id="${it.library[k]}">${icon('play')} ${k === 'video' ? 'Assistir' : 'Ouvir'}</button>`;
+    const playBtn = `<button class="btn sm primary" data-action="stream" title="Tocar agora, sem baixar">${icon('play')} Tocar</button>`;
     const j = it.job?.[k];
     if (j && j.status === 'error') return `${playBtn}<span class="pill err" title="${esc(j.message)}"><span>Erro ao baixar</span></span><button class="btn sm" data-action="dl" title="Tentar baixar de novo">${icon('refresh')}</button>`;
-    if (j) return `${playBtn}<span class="pill"><i style="width:${j.progress || 0}%"></i><span>${j.status === 'running' ? `${esc(j.message || 'Baixando')} ${Math.round(j.progress || 0)}%` : 'Na fila…'}</span></span>`;
-    const playBtn = `<button class="btn sm primary" data-action="stream" title="Tocar agora, sem baixar">${icon('play')} Tocar</button>`;
+    if (j) return `${playBtn}<span class="pill"><i style="width:${j.progress || 0}%"></i><span>${j.status === 'running' ? `${esc(j.message || 'Baixando')} ${Math.round(j.progress || 0)}%` : j.status === 'agent' ? 'Aguardando agente…' : 'Na fila…'}</span></span>`;
     if (it.server?.[k]) return `<button class="btn sm" data-action="dl" title="Já está no servidor: entra na hora, sem gastar download">${icon('bolt')} Adicionar</button>`;
     return `${playBtn}<button class="btn sm" data-action="dl" title="Guardar na sua biblioteca (e ouvir offline)">${icon('download')}</button>`;
   }

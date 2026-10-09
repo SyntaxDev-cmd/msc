@@ -58,7 +58,7 @@ final class Jobs
             return ['status' => 'added', 'track_id' => (int) $t['id']];
         }
         $j = Db::one(
-            "SELECT id FROM jobs WHERE kind = ? AND status IN ('queued','running') AND ((source = ? AND source_id = ?) OR dedup_key = ?)",
+            "SELECT id FROM jobs WHERE kind = ? AND status IN ('queued','running','agent') AND ((source = ? AND source_id = ?) OR dedup_key = ?)",
             [$kind, $source, $sid, $key]
         );
         if ($j) {
@@ -90,7 +90,7 @@ final class Jobs
 
     public static function list(array $user, int $limit = 100): array
     {
-        $order = " ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, j.updated_at DESC LIMIT " . (int) $limit;
+        $order = " ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'agent' THEN 1 ELSE 2 END, j.updated_at DESC LIMIT " . (int) $limit;
         $rows = Account::isAdmin($user)
             ? Db::all('SELECT j.*, a.username FROM jobs j LEFT JOIN accounts a ON a.id = j.user_id' . $order)
             : Db::all('SELECT j.*, NULL username FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ?' . $order, [$user['id']]);
@@ -106,9 +106,9 @@ final class Jobs
     public static function pendingCount(?array $user = null): int
     {
         if ($user && !Account::isAdmin($user)) {
-            return (int) (Db::one("SELECT COUNT(*) c FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ? WHERE j.status IN ('queued','running')", [$user['id']])['c'] ?? 0);
+            return (int) (Db::one("SELECT COUNT(*) c FROM jobs j JOIN job_users ju ON ju.job_id = j.id AND ju.user_id = ? WHERE j.status IN ('queued','running','agent')", [$user['id']])['c'] ?? 0);
         }
-        return (int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status IN ('queued','running')")['c'] ?? 0);
+        return (int) (Db::one("SELECT COUNT(*) c FROM jobs WHERE status IN ('queued','running','agent')")['c'] ?? 0);
     }
 
     private static function owns(array $user, int $id): bool
@@ -118,8 +118,12 @@ final class Jobs
 
     public static function retry(array $user, int $id): void
     {
-        if (self::owns($user, $id)) {
-            Db::exec("UPDATE jobs SET status = 'queued', progress = 0, message = '', attempts = 0, updated_at = ? WHERE id = ? AND status = 'error'", [time(), $id]);
+        $j = self::owns($user, $id) ? Db::one("SELECT payload FROM jobs WHERE id = ? AND status = 'error'", [$id]) : null;
+        if ($j) {
+            $p = json_decode((string) $j['payload'], true) ?: [];
+            unset($p['_prep']); // prepara de novo (pode ter mudado o vídeo escolhido)
+            Db::exec("UPDATE jobs SET status = 'queued', progress = 0, message = '', attempts = 0, payload = ?, updated_at = ? WHERE id = ?",
+                [json_encode($p, JSON_UNESCAPED_UNICODE), time(), $id]);
         }
     }
 

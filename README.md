@@ -179,6 +179,21 @@ bitrate (128 kbps padrão), altura máxima de vídeo, chave da YouTube Data API,
 | `mp3` 128k | sim | ~4 MB | Compatível com tudo |
 | `opus` 96k | sim | ~3 MB | O mais leve com ótima qualidade |
 
+### 💻 Agente de download (a forma garantida de baixar para a hospedagem)
+O YouTube bloqueia downloads vindos de IPs de datacenter, como o da Hostinger. O **agente** resolve isso de graça e sem limite:
+ele roda no **seu computador** (internet de casa, que não é bloqueada), pega a fila de downloads do app, baixa com o
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) e **envia o arquivo para a hospedagem** — que converte para MP3, organiza em
+Gênero/Artista, salva a capa e libera para todos os clientes, sem anúncios.
+
+1. **Painel › Marca e config. › Agente de download › Baixar agente (Windows)**.
+2. Dê dois cliques em **“Agente de download.bat”** (na 1ª vez ele baixa o yt-dlp e o Deno sozinho; depois se atualiza).
+3. Deixe a janela aberta. O painel mostra 🟢 quando ele está conectado.
+
+Detalhes: o envio é feito em pedaços de 1 MB (funciona com qualquer limite de upload do PHP); cada agente usa um
+token secreto (dá para gerar outro no painel); com o agente ligado o servidor nem tenta baixar do YouTube; se ele
+desligar no meio de um download, o pedido volta para a fila em 15 minutos. Enquanto a música não baixa, o cliente
+ouve na hora pelo botão **▶ Tocar**.
+
 ### YouTube pedindo “confirme que você não é um robô”? (comum em hospedagem)
 O YouTube bloqueia downloads vindos de IPs de datacenter, como o da Hostinger. O Sonora resolve sozinho:
 1. Tenta o **yt-dlp** direto (com seus cookies/proxy, se configurados).
